@@ -1,0 +1,4 @@
+ue,total_tx,total_rx,total_loss_pct,avg_latency_ms
+UE-776,0,75,100.0,27.483
+UE-777,0,73,100.0,27.721
+UE-778,0,72,100.0,27.420

@@ -1,3 +1,10 @@
 fig1_gnb_mac_traffic.png
 fig2_ue_radio_harq.png
+fig3_core_event_timeline.png
 fig4_slice_policy_ratios.png
+fig5_multi_ue_attach_timeline.png
+fig6_multi_ue_ip_allocations.png
+fig7_3ue_qos_noise_15s.png
+fig7_3ue_qos_noise_15s_corrected.png
+qos_3ue_noise_15s_summary.csv
+qos_3ue_noise_15s_summary_corrected.csv
