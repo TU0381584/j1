@@ -1,0 +1,3 @@
+fig1_gnb_mac_traffic.png
+fig2_ue_radio_harq.png
+fig4_slice_policy_ratios.png
