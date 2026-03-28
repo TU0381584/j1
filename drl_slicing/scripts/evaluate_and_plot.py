@@ -15,6 +15,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True, help="Training config")
     parser.add_argument("--output-dir", default="results/phaseB_eval", help="Evaluation output folder")
     parser.add_argument("--seeds", nargs="+", type=int, default=[42, 123, 456], help="Seed list")
+    parser.add_argument("--skip-run", action="store_true", help="Skip evaluation and only plot existing results")
     return parser.parse_args()
 
 
@@ -79,7 +80,8 @@ def plot_comparison(output_dir: str):
 
 def main() -> int:
     args = parse_args()
-    run_eval(args.config, args.output_dir, args.seeds)
+    if not args.skip_run:
+        run_eval(args.config, args.output_dir, args.seeds)
     plot_comparison(args.output_dir)
     return 0
 

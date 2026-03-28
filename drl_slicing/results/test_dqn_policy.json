@@ -3,8 +3,8 @@
     {
       "sst": 1,
       "dedicated_ratio": 5,
-      "min_ratio": 45,
-      "max_ratio": 78,
+      "min_ratio": 20,
+      "max_ratio": 94,
       "sd": 0
     },
     {

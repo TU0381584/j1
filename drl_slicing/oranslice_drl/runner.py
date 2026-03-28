@@ -3,7 +3,7 @@ import os
 import time
 from typing import Dict, List
 
-from .collectors import CsvReplayCollector, MetricsCollector, PrometheusCollector
+from .collectors import CsvReplayCollector, MetricsCollector, PrometheusCollector, OnlineRanRandomCollector
 from .config import ExperimentConfig, SliceTarget
 from .controllers import (
     Controller,
@@ -22,7 +22,7 @@ def _build_targets(config: ExperimentConfig) -> Dict[str, SliceTarget]:
     return {item.slice_id: item for item in config.slices}
 
 
-def _build_collector(config: ExperimentConfig, slice_ids: List[str]) -> MetricsCollector:
+def _build_collector(config: ExperimentConfig, slice_ids: List[str], targets: Dict[str, SliceTarget]) -> MetricsCollector:
     mode = config.collector.mode
     if mode == "csv_replay":
         return CsvReplayCollector(config.collector.csv_path, slice_ids, config.collector.step_seconds)
@@ -32,6 +32,13 @@ def _build_collector(config: ExperimentConfig, slice_ids: List[str]) -> MetricsC
             config.collector.metric_queries,
             slice_ids,
             config.collector.step_seconds,
+        )
+    if mode == "online_ran_random":
+        return OnlineRanRandomCollector(
+            slice_ids,
+            targets,
+            config.collector.step_seconds,
+            config.random_seed,
         )
     raise ValueError(f"Unknown collector mode: {mode}")
 
@@ -70,18 +77,20 @@ def _append_run_log(path: str, record: dict) -> None:
 def run_experiment(config: ExperimentConfig) -> None:
     targets = _build_targets(config)
     slice_ids = list(targets.keys())
-    collector = _build_collector(config, slice_ids)
+    collector = _build_collector(config, slice_ids, targets)
     controller = _build_controller(config, targets)
 
     for step in range(config.horizon_steps):
         state = collector.get_state(step)
         actions = controller.act(state)
         write_rrm_policy_json(config.output.policy_json_path, actions, targets)
-        reward, violations = compute_sla_reward(state, targets)
+
+        collector.on_action(actions, targets, step)
 
         done = step >= (config.horizon_steps - 1)
         next_step = step if done else step + 1
         next_state = collector.get_state(next_step)
+        reward, violations = compute_sla_reward(next_state, targets)
         train_metrics = controller.train_step(reward, next_state, done)
 
         summary = ";".join(f"{a.slice_id}:min={a.min_ratio},max={a.max_ratio}" for a in actions)
