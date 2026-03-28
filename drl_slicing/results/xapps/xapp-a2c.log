@@ -1,2 +1,0 @@
-[xapp-a2c-train] run 1 | mode=a2c_train | horizon=300
-[xapp-a2c-train] completed 1 run(s)

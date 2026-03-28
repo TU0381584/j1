@@ -1,2 +1,0 @@
-[xapp-dqn-train] run 1 | mode=dqn_train | horizon=300
-[xapp-dqn-train] completed 1 run(s)

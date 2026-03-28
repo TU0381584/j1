@@ -1,6 +1,0 @@
-experiment,step,timestamp_s,reward,sla_violations,action_summary
-rfsim_phaseb_quick,0,0.0,-0.41904761904761934,1,"1-0:min=50,max=61;1-1:min=5,max=40;1-2:min=5,max=40"
-rfsim_phaseb_quick,1,1.0,-1.1644444444444448,1,"1-0:min=35,max=100;1-1:min=15,max=40;1-2:min=5,max=40"
-rfsim_phaseb_quick,2,2.0,-3.18126984126984,1,"1-0:min=30,max=89;1-1:min=15,max=40;1-2:min=5,max=40"
-rfsim_phaseb_quick,3,3.0,-4.909206349206349,2,"1-0:min=45,max=61;1-1:min=5,max=40;1-2:min=5,max=40"
-rfsim_phaseb_quick,4,4.0,-6.916031746031748,2,"1-0:min=55,max=100;1-1:min=10,max=40;1-2:min=5,max=40"
