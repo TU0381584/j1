@@ -1,0 +1,5 @@
+experiment,step,timestamp_s,reward,sla_violations,action_summary
+rfsim_sla_rule_based,0,0.0,-0.41904761904761934,1,"1-0:min=5,max=98;1-1:min=7,max=100;1-2:min=5,max=98"
+rfsim_sla_rule_based,1,1.0,-1.1644444444444448,1,"1-0:min=5,max=96;1-1:min=9,max=100;1-2:min=5,max=96"
+rfsim_sla_rule_based,0,0.0,-0.41904761904761934,1,"1-0:min=5,max=98;1-1:min=7,max=100;1-2:min=5,max=98"
+rfsim_sla_rule_based,1,1.0,-1.1644444444444448,1,"1-0:min=5,max=96;1-1:min=9,max=100;1-2:min=5,max=96"

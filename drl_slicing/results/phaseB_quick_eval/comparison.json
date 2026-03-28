@@ -1,0 +1,20 @@
+{
+  "dqn_train": {
+    "num_seeds": 3,
+    "reward_mean": -3.318,
+    "reward_std": 4.440892098500626e-16,
+    "reward_min": -3.3180000000000005,
+    "reward_max": -3.3180000000000005,
+    "violations_mean": 7.0,
+    "violations_std": 0.0
+  },
+  "a2c_train": {
+    "num_seeds": 3,
+    "reward_mean": -3.318,
+    "reward_std": 4.440892098500626e-16,
+    "reward_min": -3.3180000000000005,
+    "reward_max": -3.3180000000000005,
+    "violations_mean": 7.0,
+    "violations_std": 0.0
+  }
+}
