@@ -3,11 +3,13 @@
 DRL Training Orchestrator: Train DQN and A2C policies, evaluate, and compare.
 """
 import argparse
-import os
-import sys
+import csv
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List
+
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -24,38 +26,36 @@ def run_algorithm(
 ) -> Dict:
     """
     Train or evaluate an algorithm across multiple seeds.
-    
+
     Args:
         algorithm: "dqn" or "a2c"
         config_path: path to base YAML config
         output_dir: directory for results
         seeds: list of random seeds
         train: if True, use training mode; else inference
-        
+
     Returns:
-        summary: aggregated results across seeds
+        summary stats for the algorithm
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     algo_dir = output_path / f"{algorithm}_{'train' if train else 'eval'}"
-    algo_dir.mkdir(exist_ok=True)
+    algo_dir.mkdir(parents=True, exist_ok=True)
 
-    config_base = load_experiment_config(config_path)
     summaries = []
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Running {algorithm.upper()} {'Training' if train else 'Evaluation'}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     for seed in seeds:
         run_dir = algo_dir / f"seed_{seed:03d}"
-        run_dir.mkdir(exist_ok=True)
+        run_dir.mkdir(parents=True, exist_ok=True)
 
         config = load_experiment_config(config_path)
         config.random_seed = seed
 
-        # Set controller mode based on algorithm and train flag
         if algorithm == "dqn":
             config.controller.mode = "dqn_train" if train else "dqn"
         elif algorithm == "a2c":
@@ -70,53 +70,51 @@ def run_algorithm(
         try:
             run_experiment(config)
             print(f"[Seed {seed:03d}] ✓ Complete")
-        except Exception as e:
-            print(f"[Seed {seed:03d}] ✗ Error: {e}")
+        except Exception as error:
+            print(f"[Seed {seed:03d}] ✗ Error: {error}")
             continue
 
-        # Aggregate results
-        import csv
         run_log = run_dir / "run_log.csv"
         if run_log.exists():
-            with run_log.open("r") as handle:
+            with run_log.open("r", encoding="utf-8") as handle:
                 reader = csv.DictReader(handle)
                 rows = list(reader)
-                if rows:
-                    avg_reward = sum(float(r["reward"]) for r in rows) / len(rows)
-                    total_violations = sum(int(r["sla_violations"]) for r in rows)
-                    summaries.append({
+
+            if rows:
+                avg_reward = sum(float(row["reward"]) for row in rows) / len(rows)
+                total_violations = sum(int(row["sla_violations"]) for row in rows)
+                summaries.append(
+                    {
                         "seed": seed,
                         "avg_reward": avg_reward,
                         "total_sla_violations": total_violations,
                         "num_steps": len(rows),
-                    })
+                    }
+                )
 
-    # Save summary
-    if summaries:
-        summary_path = algo_dir / "summary.csv"
-        import csv
-        with summary_path.open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=summaries[0].keys())
-            writer.writeheader()
-            writer.writerows(summaries)
-        print(f"\n✓ Summary saved: {summary_path}")
+    if not summaries:
+        return {}
 
-        # Compute aggregate stats
-        rewards = [s["avg_reward"] for s in summaries]
-        violations = [s["total_sla_violations"] for s in summaries]
-        import numpy as np
-        stats = {
-            "algorithm": algorithm,
-            "train_mode": train,
-            "num_seeds": len(summaries),
-            "reward_mean": float(np.mean(rewards)),
-            "reward_std": float(np.std(rewards)),
-            "violations_mean": float(np.mean(violations)),
-            "violations_std": float(np.std(violations)),
-        }
-        return stats
+    summary_path = algo_dir / "summary.csv"
+    with summary_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=summaries[0].keys())
+        writer.writeheader()
+        writer.writerows(summaries)
 
-    return {}
+    print(f"\n✓ Summary saved: {summary_path}")
+
+    rewards = [entry["avg_reward"] for entry in summaries]
+    violations = [entry["total_sla_violations"] for entry in summaries]
+
+    return {
+        "algorithm": algorithm,
+        "train_mode": train,
+        "num_seeds": len(summaries),
+        "reward_mean": float(np.mean(rewards)),
+        "reward_std": float(np.std(rewards)),
+        "violations_mean": float(np.mean(violations)),
+        "violations_std": float(np.std(violations)),
+    }
 
 
 def compare_algorithms(base_output_dir: str) -> None:
@@ -127,26 +125,23 @@ def compare_algorithms(base_output_dir: str) -> None:
     output_path.mkdir(parents=True, exist_ok=True)
     comparison_file = output_path / "comparison.json"
 
-    results = {}
+    results: Dict[str, Dict] = {}
 
     for algo in ["dqn", "a2c"]:
         for mode in ["train", "eval"]:
-            algo_dir = output_path / f"{algo}_{mode}"
-            summary_file = algo_dir / "summary.csv"
-
+            summary_file = output_path / f"{algo}_{mode}" / "summary.csv"
             if not summary_file.exists():
-                print(f"⚠ No summary found: {summary_file}")
                 continue
 
-            import csv
-            import numpy as np
-            with summary_file.open("r") as handle:
+            with summary_file.open("r", encoding="utf-8") as handle:
                 reader = csv.DictReader(handle)
                 rows = list(reader)
 
-            rewards = [float(r["avg_reward"]) for r in rows]
-            violations = [int(r["total_sla_violations"]) for r in rows]
+            if not rows:
+                continue
 
+            rewards = [float(row["avg_reward"]) for row in rows]
+            violations = [int(row["total_sla_violations"]) for row in rows]
             key = f"{algo}_{mode}"
             results[key] = {
                 "num_seeds": len(rows),
@@ -162,9 +157,9 @@ def compare_algorithms(base_output_dir: str) -> None:
         print("⚠ No results found to compare.")
         return
 
-    # Save comparison
-    with comparison_file.open("w") as handle:
+    with comparison_file.open("w", encoding="utf-8") as handle:
         json.dump(results, handle, indent=2)
+
     print(f"\n✓ Comparison results: {comparison_file}")
     print("\nSummary:")
     for key, stats in results.items():
@@ -179,40 +174,57 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--algorithms",
         nargs="+",
-        default=["dqn"],
+        default=["dqn", "a2c"],
         choices=["dqn", "a2c"],
-        help="Algorithms to train",
+        help="Algorithms to train/evaluate",
     )
-    parser.add_argument("--seeds", nargs="+", type=int, default=[42, 123, 456],
-                        help="Random seeds")
-    parser.add_argument("--output-dir", default="drl_results",
-                        help="Base output directory")
-    parser.add_argument("--train", action="store_true",
-                        help="Train mode (else inference)")
-    parser.add_argument("--compare", action="store_true",
-                        help="Compare all results in output-dir")
+    parser.add_argument(
+        "--seeds",
+        nargs="+",
+        type=int,
+        default=[42, 123, 456],
+        help="Random seeds",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="results/phaseB_eval",
+        help="Base output directory",
+    )
+    parser.add_argument(
+        "--train",
+        action="store_true",
+        help="Train mode (else inference mode)",
+    )
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="Compare all results in output-dir",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
 
-    if args.train:
-        if not args.config:
-            print("Error: --config is required when --train is used")
-            return 2
-        for algo in args.algorithms:
-            run_algorithm(algo, args.config, args.output_dir, args.seeds, train=True)
-
-    elif args.config:
-        for algo in args.algorithms:
-            run_algorithm(algo, args.config, args.output_dir, args.seeds, train=False)
+    if args.config:
+        for algorithm in args.algorithms:
+            run_algorithm(
+                algorithm=algorithm,
+                config_path=args.config,
+                output_dir=args.output_dir,
+                seeds=args.seeds,
+                train=args.train,
+            )
 
     if args.compare:
         compare_algorithms(args.output_dir)
+
+    if not args.config and not args.compare:
+        print("Nothing to do. Provide --config and/or --compare.")
+        return 2
 
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
