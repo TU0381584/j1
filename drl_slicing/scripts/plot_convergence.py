@@ -16,10 +16,23 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plot convergence curves from run logs")
     parser.add_argument("--output-dir", required=True, help="Directory containing dqn_train/a2c_train")
     parser.add_argument("--mode", default="train", choices=["train", "eval"], help="Run mode folder suffix")
+    parser.add_argument("--ma-window", type=int, default=10, help="Moving-average window for reward curves")
     return parser.parse_args()
 
 
-def _read_algo_curves(base_dir: Path, algo: str, mode: str) -> Dict[str, np.ndarray]:
+def _moving_average(series: np.ndarray, window: int) -> np.ndarray:
+    if window <= 1:
+        return series
+    out = np.zeros_like(series, dtype=np.float64)
+    csum = np.cumsum(np.insert(series.astype(np.float64), 0, 0.0))
+    for idx in range(len(series)):
+        start = max(0, idx - window + 1)
+        count = idx - start + 1
+        out[idx] = (csum[idx + 1] - csum[start]) / count
+    return out
+
+
+def _read_algo_curves(base_dir: Path, algo: str, mode: str, ma_window: int) -> Dict[str, np.ndarray]:
     algo_dir = base_dir / f"{algo}_{mode}"
     seed_dirs = sorted([path for path in algo_dir.glob("seed_*") if path.is_dir()])
 
@@ -40,7 +53,8 @@ def _read_algo_curves(base_dir: Path, algo: str, mode: str) -> Dict[str, np.ndar
                 violations.append(float(row["sla_violations"]))
 
         if rewards:
-            reward_series.append(np.array(rewards, dtype=np.float64))
+            reward_arr = np.array(rewards, dtype=np.float64)
+            reward_series.append(_moving_average(reward_arr, ma_window))
             violation_series.append(np.array(violations, dtype=np.float64))
 
     if not reward_series:
@@ -75,8 +89,8 @@ def main() -> int:
     args = parse_args()
     base_dir = Path(args.output_dir)
 
-    dqn = _read_algo_curves(base_dir, "dqn", args.mode)
-    a2c = _read_algo_curves(base_dir, "a2c", args.mode)
+    dqn = _read_algo_curves(base_dir, "dqn", args.mode, args.ma_window)
+    a2c = _read_algo_curves(base_dir, "a2c", args.mode, args.ma_window)
 
     if not dqn and not a2c:
         raise RuntimeError(f"No run logs found in {base_dir}")
@@ -89,13 +103,13 @@ def main() -> int:
         _plot_curve(dqn["steps"], dqn["reward_mean"], dqn["reward_std"], f"DQN ({int(dqn['num_seeds'][0])} seeds)", "tab:blue")
     if a2c:
         _plot_curve(a2c["steps"], a2c["reward_mean"], a2c["reward_std"], f"A2C ({int(a2c['num_seeds'][0])} seeds)", "tab:orange")
-    plt.title("Convergence Over Time: Reward")
+    plt.title(f"Convergence Over Time: Reward (MA window={args.ma_window})")
     plt.xlabel("Step")
     plt.ylabel("Reward")
     plt.grid(alpha=0.25)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(plots_dir / "convergence_reward.png", dpi=170)
+    plt.savefig(plots_dir / "convergence_reward_ma.png", dpi=170)
     plt.close()
 
     plt.figure(figsize=(10, 5.5))
