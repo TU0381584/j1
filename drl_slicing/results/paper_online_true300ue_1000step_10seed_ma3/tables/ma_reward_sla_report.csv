@@ -1,0 +1,3 @@
+algorithm,num_seeds,ma_reward_final_mean,ma_reward_final_std,total_violations_mean,total_violations_std,violations_per_step_mean,violations_per_step_std
+dqn_train,10,0.12938889789908126,1.4107455307816634,1593.6,392.3728329025851,1.5936,0.3923728329025852
+a2c_train,10,-0.13949039044064224,1.540415643861879,1600.6,310.39078594571714,1.6006,0.3103907859457171
