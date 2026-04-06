@@ -240,3 +240,29 @@ If you use this implementation, please cite:
 
 - ORANSlice paper: "H. Cheng, S. D'Oro, ..., ORANSlice: An Open-Source 5G Network Slicing Platform for O-RAN," MobiCom 2024
 - Your DRL slice allocation work (TBD)
+
+## Running Live 100-UE O-RAN Simulation
+
+To spin up the entire testbed including the 5G Core, O-RAN gNBs, 100 User Equipments (UEs) categorized into eMBB and URLLC classes with active traffic, and run the DRL agents (A2C/DQN) as xApps, execute the following orchestrator scripts.
+
+**1. Start the Live 100-UE O-RAN Orchestrator:**
+```bash
+cd drl_slicing/scripts
+./run_oran_live_100ue_xapps.sh --active-algo dqn
+```
+
+This master script will:
+- Generate independent identities and profiles for 100 UEs dynamically.
+- Spin up Open5GS Core.
+- Spin up UERANSIM gNB.
+- Provision all generated UE IMSIs directly in the Core DB.
+- Spin up the 100 UE UERANSIM instances matching the generated configs.
+- Inject randomized multi-profile traffic directly via Pings across the UE network namespces.
+- Start your specified RL algo as the actively loaded xApp (`rrmPolicy.json` source) and start the opposite model in passive mode.
+
+**2. Tear Down the Environment:**
+Once finished, to cleanly stop all containers and traffic load tools:
+```bash
+cd drl_slicing/scripts
+./stop_oran_live_100ue_xapps.sh
+```
