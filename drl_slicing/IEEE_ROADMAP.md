@@ -2,6 +2,23 @@
 
 **Objective**: Demonstrate that deep reinforcement learning can optimize 5G resource allocation based on user bandwidth behaviour, with SLA-aware fairness and efficiency.
 
+## Implementation Update (2026-04-07)
+
+- Added unified orchestrator: `scripts/train_drl.py`
+  - Supports: `dqn_train`, `a2c_train`, `rule_based`, `static`, `random`
+  - Adds per-controller multi-seed summaries and top-level `comparison_summary.csv`
+  - Supports fast replay overrides: `--horizon-steps` and `--step-seconds`
+- Added one-command rerun launcher: `scripts/run_ieee_access_rerun.sh`
+  - Default package: 10 seeds x 1000 steps across all five controllers
+  - Writes outputs to `results/ieee_access_rerun/`
+
+### Quick start command
+
+```bash
+cd drl_slicing
+./scripts/run_ieee_access_rerun.sh
+```
+
 ## Phase 1: Foundation (✓ Complete)
 
 ### What was delivered

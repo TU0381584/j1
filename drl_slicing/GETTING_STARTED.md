@@ -9,6 +9,7 @@ This is the initial closed-loop scaffold for SLA-driven slice allocation on OAI 
 1. **Config-driven runners**
    - Single-run experiment via `python scripts/run_experiment.py --config configs/<name>.yaml`
    - Multi-seed batch runner via `python scripts/batch_runner.py --config <name>.yaml --seeds 42 123 456 789 999`
+   - Unified multi-controller sweep via `python scripts/train_drl.py --config <name>.yaml --controllers dqn_train a2c_train rule_based static random`
 
 2. **Baseline controllers**
    - `static`: Fixed min/max ratios from config
@@ -53,6 +54,8 @@ drl_slicing/
   scripts/
     run_experiment.py              # Single-run entrypoint
     batch_runner.py                # Multi-seed orchestrator
+    train_drl.py                   # Unified DRL + baseline orchestrator
+    run_ieee_access_rerun.sh       # One-command IEEE rerun package
   results/                         # Generated outputs
   README.md                        # Original phase-1 docs
   requirements.txt
@@ -110,6 +113,20 @@ jupyter notebook notebooks/analysis.ipynb
 ```
 
 Load and combine CSVs from `batch_results/*/summary.csv` to compute confidence intervals and statistical tests.
+
+### Run IEEE Access short rerun package (10 seeds, 1000 steps)
+```bash
+cd drl_slicing
+./scripts/run_ieee_access_rerun.sh
+```
+
+This generates per-controller outputs under `results/ieee_access_rerun/`:
+- `dqn_train/seed_*/run_log.csv`
+- `a2c_train/seed_*/run_log.csv`
+- `rule_based/seed_*/run_log.csv`
+- `static/seed_*/run_log.csv`
+- `random/seed_*/run_log.csv`
+- `comparison_summary.csv` and `comparison.json` at the root of the run folder
 
 ## Integration with ORANSlice Testbed
 
