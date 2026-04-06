@@ -33,7 +33,7 @@ while IFS=, read -r _service container _rest; do
     continue
   fi
 
-  docker exec "$container" bash -lc "pkill -f 'ping -I uesimtun0' >/dev/null 2>&1 || true"
+  docker exec "$container" bash -lc "pkill -f '^bash -lc while true; do ping -I uesimtun0' >/dev/null 2>&1 || true; pkill -x ping >/dev/null 2>&1 || true"
   stopped=$((stopped + 1))
 done < <(tail -n +2 "$PROFILE_CSV")
 

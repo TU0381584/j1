@@ -44,6 +44,8 @@ skipped=0
 
 while IFS=, read -r _service container _component _imsi _imei _imeisv _ki _op _amf profile; do
   [[ -z "$container" ]] && continue
+  profile="${profile//$'\r'/}"
+  profile="${profile,,}"
 
   if ! docker ps --format '{{.Names}}' | grep -q "^${container}$"; then
     skipped=$((skipped + 1))
@@ -68,7 +70,9 @@ while IFS=, read -r _service container _component _imsi _imei _imeisv _ki _op _a
     continue
   fi
 
-  docker exec -d "$container" bash -lc "pkill -f 'ping -I uesimtun0' >/dev/null 2>&1 || true; ${traffic_cmd}"
+  # Avoid self-termination by matching only legacy loop command lines.
+  docker exec "$container" bash -lc "pkill -f '^bash -lc while true; do ping -I uesimtun0' >/dev/null 2>&1 || true; pkill -x ping >/dev/null 2>&1 || true"
+  docker exec -d "$container" bash -lc "${traffic_cmd}"
   started=$((started + 1))
 done < <(tail -n +2 "$PROFILE_CSV")
 
