@@ -78,32 +78,54 @@ echo "Using DB URI        : $DB_URI"
 echo "Provisioning subscribers from: $PROFILE_CSV"
 
 added=0
-skipped=0
 failed=0
 
-while IFS=, read -r _service _container _component imsi _imei _imeisv ki op _amf _profile; do
+while IFS=, read -r service_name _container _component imsi _imei _imeisv ki op _amf profile sst sd _slice_id; do
   [[ -z "$imsi" ]] && continue
 
+  profile="${profile//$'\r'/}"
+  profile="${profile,,}"
+  sst="${sst//$'\r'/}"
+  sd="${sd//$'\r'/}"
+
+  if [[ -z "$sst" ]]; then
+    sst="1"
+  fi
+
+  if [[ -z "$sd" ]]; then
+    if [[ "$profile" == "urllc" ]]; then
+      sd="000001"
+    else
+      ue_idx="${service_name##*_}"
+      if [[ "$ue_idx" =~ ^[0-9]+$ ]] && (( 10#$ue_idx % 2 == 0 )); then
+        sd="000000"
+      else
+        sd="000002"
+      fi
+    fi
+  fi
+
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    echo "[DRY-RUN] $DBCTL_PATH --db_uri=$DB_URI add $imsi $ki $op"
+    echo "[DRY-RUN] ensure subscriber $imsi has slice sst=$sst sd=$sd"
     continue
   fi
 
-  if docker exec "$CORE_CONTAINER" sh -lc "$DBCTL_PATH --db_uri='$DB_URI' add '$imsi' '$ki' '$op'" >/dev/null 2>&1; then
+  if ! docker exec "$CORE_CONTAINER" sh -lc "$DBCTL_PATH --db_uri='$DB_URI' remove '$imsi'" >/dev/null 2>&1; then
+    failed=$((failed + 1))
+    echo "Failed to remove IMSI: $imsi"
+    continue
+  fi
+
+  if docker exec "$CORE_CONTAINER" sh -lc "$DBCTL_PATH --db_uri='$DB_URI' add_ue_with_slice '$imsi' '$ki' '$op' 'internet' '$sst' '$sd'" >/dev/null 2>&1; then
     added=$((added + 1))
   else
-    if docker exec "$CORE_CONTAINER" sh -lc "$DBCTL_PATH --db_uri='$DB_URI' showfiltered | grep -q '$imsi'"; then
-      skipped=$((skipped + 1))
-      echo "Skipped IMSI (already exists): $imsi"
-    else
-      failed=$((failed + 1))
-      echo "Failed to add IMSI: $imsi"
-    fi
+    failed=$((failed + 1))
+    echo "Failed to add IMSI: $imsi"
   fi
 done < <(tail -n +2 "$PROFILE_CSV")
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "Dry-run complete."
 else
-  echo "Provisioning complete: added=$added skipped=$skipped failed=$failed"
+  echo "Provisioning complete: added=$added failed=$failed"
 fi

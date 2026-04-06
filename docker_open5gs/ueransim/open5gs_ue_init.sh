@@ -27,6 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 export IP_ADDR=$(awk 'END{print $1}' /etc/hosts)
+UE_SLICE_SST=${UE_SLICE_SST:-1}
+UE_SLICE_SD=${UE_SLICE_SD:-000000}
 
 cp /mnt/ueransim/open5gs-ue.yaml /UERANSIM/config/open5gs-ue.yaml
 sed -i 's|MNC|'$MNC'|g' /UERANSIM/config/open5gs-ue.yaml
@@ -38,6 +40,8 @@ sed -i 's|UE1_AMF|'$UE1_AMF'|g' /UERANSIM/config/open5gs-ue.yaml
 sed -i 's|UE1_IMEISV|'$UE1_IMEISV'|g' /UERANSIM/config/open5gs-ue.yaml
 sed -i 's|UE1_IMEI|'$UE1_IMEI'|g' /UERANSIM/config/open5gs-ue.yaml
 sed -i 's|UE1_IMSI|'$UE1_IMSI'|g' /UERANSIM/config/open5gs-ue.yaml
+sed -i 's|UE_SLICE_SST|'$UE_SLICE_SST'|g' /UERANSIM/config/open5gs-ue.yaml
+sed -i 's|UE_SLICE_SD|'$UE_SLICE_SD'|g' /UERANSIM/config/open5gs-ue.yaml
 sed -i 's|NR_GNB_IP|'$NR_GNB_IP'|g' /UERANSIM/config/open5gs-ue.yaml
 
 # Sync docker time

@@ -10,6 +10,7 @@ UE_COUNT=100
 EMBB_RATIO=0.7
 RANDOM_SEED=42
 ACTIVE_ALGO="dqn"
+GNB_MODE="ueransim"
 TRAFFIC_TARGET_IP="12.1.1.1"
 CORE_CONTAINER="amf"
 DRY_RUN=0
@@ -36,6 +37,10 @@ while [[ $# -gt 0 ]]; do
       ACTIVE_ALGO="$2"
       shift 2
       ;;
+    --gnb-mode)
+      GNB_MODE="$2"
+      shift 2
+      ;;
     --traffic-target-ip)
       TRAFFIC_TARGET_IP="$2"
       shift 2
@@ -54,7 +59,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--ue-count N] [--embb-ratio R] [--random-seed S] [--active-algo dqn|a2c] [--traffic-target-ip IP] [--core-container NAME] [--config PATH] [--dry-run]"
+      echo "Usage: $0 [--ue-count N] [--embb-ratio R] [--random-seed S] [--active-algo dqn|a2c] [--gnb-mode ueransim|oai] [--traffic-target-ip IP] [--core-container NAME] [--config PATH] [--dry-run]"
       exit 2
       ;;
   esac
@@ -65,12 +70,47 @@ if [[ "$ACTIVE_ALGO" != "dqn" && "$ACTIVE_ALGO" != "a2c" ]]; then
   exit 2
 fi
 
+if [[ "$GNB_MODE" != "ueransim" && "$GNB_MODE" != "oai" ]]; then
+  echo "--gnb-mode must be ueransim or oai"
+  exit 2
+fi
+
+if [[ "$GNB_MODE" == "oai" ]]; then
+  GNB_COMPOSE_FILE="oaignb.yaml"
+  ACTIVE_POLICY_PATH="$DOCKER_DIR/oai/rrmPolicy.json"
+  GNB_IP_OVERRIDE="$(grep -E '^OAI_ENB_IP=' "$DOCKER_DIR/.env" | head -n 1 | cut -d'=' -f2- | tr -d '\r')"
+  if [[ -z "$GNB_IP_OVERRIDE" ]]; then
+    echo "Could not resolve OAI_ENB_IP from $DOCKER_DIR/.env"
+    exit 2
+  fi
+else
+  GNB_COMPOSE_FILE="nr-gnb.yaml"
+  ACTIVE_POLICY_PATH="$ROOT_DIR/oai_ran/rrmPolicy.json"
+  GNB_IP_OVERRIDE=""
+fi
+
 run_cmd() {
   local cmd="$1"
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "[DRY-RUN] $cmd"
   else
     eval "$cmd"
+  fi
+}
+
+seed_active_policy() {
+  local source_policy="$ROOT_DIR/oai_ran/rrmPolicy.json"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "[DRY-RUN] ensure active policy exists at $ACTIVE_POLICY_PATH"
+    return
+  fi
+
+  mkdir -p "$(dirname "$ACTIVE_POLICY_PATH")"
+  if [[ -f "$source_policy" && "$source_policy" != "$ACTIVE_POLICY_PATH" ]]; then
+    cp "$source_policy" "$ACTIVE_POLICY_PATH"
+  elif [[ ! -f "$ACTIVE_POLICY_PATH" ]]; then
+    echo '{"scope":"e2","style":"radio","policyType":"ORAN_TrafficSteeringPreference","preferences":[]}' > "$ACTIVE_POLICY_PATH"
   fi
 }
 
@@ -118,16 +158,25 @@ echo "  UE count         : $UE_COUNT"
 echo "  eMBB ratio       : $EMBB_RATIO"
 echo "  Random seed      : $RANDOM_SEED"
 echo "  Active controller: $ACTIVE_ALGO"
+echo "  gNB mode         : $GNB_MODE"
+if [[ -n "$GNB_IP_OVERRIDE" ]]; then
+  echo "  UE gNB override  : $GNB_IP_OVERRIDE"
+fi
 echo "  Config           : $LIVE_CONFIG"
 
 echo "[1/10] Generate 100-UE fleet compose + profiles"
-run_cmd "cd '$DRL_DIR' && /usr/bin/python3 scripts/generate_ue_fleet_compose.py --ue-count '$UE_COUNT' --embb-ratio '$EMBB_RATIO' --random-seed '$RANDOM_SEED' --output-compose '$UE_COMPOSE_FILE' --output-profiles '$UE_PROFILE_CSV'"
+GEN_CMD="cd '$DRL_DIR' && /usr/bin/python3 scripts/generate_ue_fleet_compose.py --ue-count '$UE_COUNT' --embb-ratio '$EMBB_RATIO' --random-seed '$RANDOM_SEED' --output-compose '$UE_COMPOSE_FILE' --output-profiles '$UE_PROFILE_CSV'"
+if [[ -n "$GNB_IP_OVERRIDE" ]]; then
+  GEN_CMD+=" --gnb-ip-override '$GNB_IP_OVERRIDE'"
+fi
+run_cmd "$GEN_CMD"
 
 echo "[2/10] Start Open5GS core + metrics"
 run_cmd "cd '$DOCKER_DIR' && docker compose -f sa-deploy.yaml up -d"
 
-echo "[3/10] Start UERANSIM gNB"
-run_cmd "cd '$DOCKER_DIR' && docker compose -f nr-gnb.yaml up -d"
+echo "[3/10] Start gNB stack ($GNB_MODE)"
+seed_active_policy
+run_cmd "cd '$DOCKER_DIR' && docker compose -f '$GNB_COMPOSE_FILE' up -d"
 
 echo "[4/10] Provision UE subscribers"
 run_cmd "cd '$DRL_DIR' && bash scripts/provision_open5gs_subscribers.sh --profiles '$UE_PROFILE_CSV' --core-container '$CORE_CONTAINER'"
@@ -145,7 +194,6 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
 fi
 
 echo "[8/10] Start DRL xApps (both loaded, one active)"
-ACTIVE_POLICY_PATH="$ROOT_DIR/oai_ran/rrmPolicy.json"
 DQN_SHADOW_POLICY="$DRL_DIR/results/xapps/xapp-dqn-live/rrmPolicy.json"
 A2C_SHADOW_POLICY="$DRL_DIR/results/xapps/xapp-a2c-live/rrmPolicy.json"
 

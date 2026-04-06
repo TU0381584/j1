@@ -41,15 +41,18 @@ sessions:
   - type: 'IPv4'
     apn: 'internet'
     slice:
-      sst: 1
+      sst: UE_SLICE_SST
+      sd: 'UE_SLICE_SD'
 
 # Configured NSSAI for this UE by HPLMN
 configured-nssai:
-  - sst: 1
+  - sst: UE_SLICE_SST
+    sd: 'UE_SLICE_SD'
 
 # Default Configured NSSAI for this UE
 default-nssai:
-  - sst: 1
+  - sst: UE_SLICE_SST
+    sd: 'UE_SLICE_SD'
 
 # Supported encryption algorithms by this UE
 integrity:

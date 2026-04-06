@@ -8,6 +8,7 @@ GEN_DIR="$DOCKER_DIR/generated"
 
 KEEP_CORE=0
 DRY_RUN=0
+GNB_MODE="both"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -19,13 +20,22 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=1
       shift
       ;;
+    --gnb-mode)
+      GNB_MODE="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--keep-core] [--dry-run]"
+      echo "Usage: $0 [--keep-core] [--dry-run] [--gnb-mode ueransim|oai|both]"
       exit 2
       ;;
   esac
 done
+
+if [[ "$GNB_MODE" != "ueransim" && "$GNB_MODE" != "oai" && "$GNB_MODE" != "both" ]]; then
+  echo "--gnb-mode must be ueransim, oai, or both"
+  exit 2
+fi
 
 run_cmd() {
   local cmd="$1"
@@ -55,8 +65,13 @@ echo "[3/5] Stop generated UE fleet"
 run_cmd "cd '$DOCKER_DIR' && docker compose -f '$GEN_DIR/nr-ue-fleet.yaml' down >/dev/null 2>&1 || true"
 run_cmd "docker ps -a --format '{{.Names}}' | grep '^nr_ue_' | xargs -r docker rm -f >/dev/null 2>&1 || true"
 
-echo "[4/5] Stop UERANSIM gNB"
-run_cmd "cd '$DOCKER_DIR' && docker compose -f nr-gnb.yaml down >/dev/null 2>&1 || true"
+echo "[4/5] Stop gNB stack(s)"
+if [[ "$GNB_MODE" == "ueransim" || "$GNB_MODE" == "both" ]]; then
+  run_cmd "cd '$DOCKER_DIR' && docker compose -f nr-gnb.yaml down >/dev/null 2>&1 || true"
+fi
+if [[ "$GNB_MODE" == "oai" || "$GNB_MODE" == "both" ]]; then
+  run_cmd "cd '$DOCKER_DIR' && docker compose -f oaignb.yaml down >/dev/null 2>&1 || true"
+fi
 
 echo "[5/5] Stop Open5GS core"
 if [[ "$KEEP_CORE" -eq 1 ]]; then

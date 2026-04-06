@@ -10,7 +10,7 @@ import argparse
 import csv
 import random
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 
 def _default_paths():
@@ -40,6 +40,21 @@ def _assign_profiles(ue_count: int, embb_ratio: float, seed: int) -> List[str]:
     return profiles
 
 
+def _profile_to_slice(profile: str, ue_index: int) -> Tuple[str, str, str]:
+    """
+    Map UE profile to a deterministic S-NSSAI assignment.
+
+    - URLLC UEs -> SD 000001 (slice 1-1)
+    - eMBB UEs  -> split between SD 000000 (slice 1-0) and SD 000002 (slice 1-2)
+    """
+    sst = "1"
+    if profile == "urllc":
+        return sst, "000001", "1-1"
+    if ue_index % 2 == 0:
+        return sst, "000000", "1-0"
+    return sst, "000002", "1-2"
+
+
 def _write_compose(
     compose_path: Path,
     ue_count: int,
@@ -50,6 +65,7 @@ def _write_compose(
     ki: str,
     op: str,
     amf: str,
+    gnb_ip_override: str,
 ) -> List[dict]:
     records = []
 
@@ -65,6 +81,7 @@ def _write_compose(
         imei = _build_numeric_id(imei_base, i)
         imeisv = _build_numeric_id(imeisv_base, i)
         profile = profiles[i - 1]
+        sst, sd, slice_id = _profile_to_slice(profile, i)
 
         records.append(
             {
@@ -78,8 +95,26 @@ def _write_compose(
                 "op": op,
                 "amf": amf,
                 "profile": profile,
+                "sst": sst,
+                "sd": sd,
+                "slice_id": slice_id,
             }
         )
+
+        env_lines = [
+            f"      - COMPONENT_NAME={component_name}",
+            f"      - UE1_IMSI={imsi}",
+            f"      - UE1_IMEI={imei}",
+            f"      - UE1_IMEISV={imeisv}",
+            f"      - UE1_KI={ki}",
+            f"      - UE1_OP={op}",
+            f"      - UE1_AMF={amf}",
+            f"      - UE_PROFILE={profile}",
+            f"      - UE_SLICE_SST={sst}",
+            f"      - UE_SLICE_SD={sd}",
+        ]
+        if gnb_ip_override:
+            env_lines.append(f"      - NR_GNB_IP={gnb_ip_override}")
 
         lines.extend(
             [
@@ -95,14 +130,7 @@ def _write_compose(
                 "    env_file:",
                 "      - ../.env",
                 "    environment:",
-                f"      - COMPONENT_NAME={component_name}",
-                f"      - UE1_IMSI={imsi}",
-                f"      - UE1_IMEI={imei}",
-                f"      - UE1_IMEISV={imeisv}",
-                f"      - UE1_KI={ki}",
-                f"      - UE1_OP={op}",
-                f"      - UE1_AMF={amf}",
-                f"      - UE_PROFILE={profile}",
+                *env_lines,
                 "    expose:",
                 '      - "4997/udp"',
                 "    cap_add:",
@@ -143,6 +171,9 @@ def _write_profiles_csv(csv_path: Path, records: List[dict]) -> None:
                 "op",
                 "amf",
                 "profile",
+                "sst",
+                "sd",
+                "slice_id",
             ],
         )
         writer.writeheader()
@@ -164,6 +195,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ki", default="465B5CE8B199B49FAA5F0A2EE238A6BC", help="UE Ki")
     parser.add_argument("--op", default="E8ED289DEBA952E4283B54E88E6183CA", help="UE OP/OPC")
     parser.add_argument("--amf", default="8000", help="UE AMF")
+    parser.add_argument(
+        "--gnb-ip-override",
+        default="",
+        help="Optional gNB IP to inject into each UE container (overrides env_file NR_GNB_IP)",
+    )
 
     parser.add_argument("--output-compose", default=str(default_compose), help="Output docker-compose path")
     parser.add_argument("--output-profiles", default=str(default_profiles), help="Output profiles CSV path")
@@ -192,6 +228,7 @@ def main() -> int:
         ki=args.ki,
         op=args.op,
         amf=args.amf,
+        gnb_ip_override=args.gnb_ip_override,
     )
     _write_profiles_csv(csv_path, records)
 

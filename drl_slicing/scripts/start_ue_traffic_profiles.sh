@@ -42,7 +42,7 @@ echo "  Target : $TARGET_IP"
 started=0
 skipped=0
 
-while IFS=, read -r _service container _component _imsi _imei _imeisv _ki _op _amf profile; do
+while IFS=, read -r _service container _component _imsi _imei _imeisv _ki _op _amf profile _sst _sd _slice_id; do
   [[ -z "$container" ]] && continue
   profile="${profile//$'\r'/}"
   profile="${profile,,}"
