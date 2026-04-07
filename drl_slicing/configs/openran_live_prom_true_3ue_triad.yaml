@@ -1,4 +1,4 @@
-name: openran_live_prom_true_100ue_randomized
+name: openran_live_prom_true_3ue_triad
 horizon_steps: 1800
 random_seed: 42
 
@@ -56,4 +56,4 @@ controller:
 
 output:
   policy_json_path: /home/w5/ors/ORANSlice/oai_ran/rrmPolicy.json
-  run_log_csv: results/openran_live_prom_true_100ue_randomized_log.csv
+  run_log_csv: results/openran_live_prom_true_3ue_triad_log.csv

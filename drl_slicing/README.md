@@ -32,17 +32,17 @@ cd drl_slicing
 python3 -m pip install -r requirements.txt
 ```
 
-Launch the live OAI E2E stack (example: 5 UEs):
+Launch the live OAI E2E stack (example: 3-UE triad):
 
 ```bash
-bash scripts/run_closed_loop_sim.sh --ue-count 5 --active-algo dqn
+bash scripts/run_closed_loop_sim.sh --ue-count 3 --profile-mode triad --active-algo dqn
 ```
 
 Run one experiment against live Prometheus metrics:
 
 ```bash
 PYTHONPATH=. python3 scripts/run_experiment.py \
-  --config configs/openran_live_prom_true_100ue_randomized.yaml
+  --config configs/openran_live_prom_true_3ue_triad.yaml
 ```
 
 Run the IEEE comparison package:
@@ -50,14 +50,6 @@ Run the IEEE comparison package:
 ```bash
 ./scripts/run_ieee_access_rerun.sh
 ```
-
-Run the Phase 3 live scenario matrix (5 scenarios, multi-controller, multi-seed):
-
-```bash
-./scripts/run_phase3_live_matrix.sh
-```
-
-This produces scenario summaries under `results/phase3/live_matrix/` and aggregate stats under `results/phase3/live_matrix/_stats/`.
 
 ## Optional Offline Warm-Start
 
@@ -75,7 +67,7 @@ Launch training with warm-start enabled (example: PPO):
 
 ```bash
 PYTHONPATH=. python3 scripts/train_drl.py \
-  --config configs/openran_live_prom_true_100ue_randomized.yaml \
+  --config configs/openran_live_prom_true_3ue_triad.yaml \
   --controllers ppo_train \
   --seeds 42 123 456 \
   --output-dir results/phase2_ppo_warmstart \

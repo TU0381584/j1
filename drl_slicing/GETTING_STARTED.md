@@ -16,18 +16,18 @@ python3 -m pip install -r requirements.txt
 Start a closed-loop deployment with native OAI gNB/UE:
 
 ```bash
-bash scripts/run_closed_loop_sim.sh --ue-count 5 --active-algo dqn
+bash scripts/run_closed_loop_sim.sh --ue-count 3 --profile-mode triad --active-algo dqn
 ```
 
 Notes:
-- Increase `--ue-count` as needed once host resources are confirmed.
+- The default triad run uses one UE each for eMBB, URLLC, and mMTC.
 - The active algorithm can be `dqn` or `a2c`.
 
 ## 3. Run a single live experiment
 
 ```bash
 PYTHONPATH=. python3 scripts/run_experiment.py \
-  --config configs/openran_live_prom_true_100ue_randomized.yaml
+  --config configs/openran_live_prom_true_3ue_triad.yaml
 ```
 
 ## 4. Run multi-controller IEEE package
@@ -57,7 +57,7 @@ Outputs are written under `results/online_ran_compare/`.
 ## 6. Optional: launch train-mode xApps
 
 ```bash
-./scripts/load_xapps.sh configs/openran_live_prom_true_100ue_randomized.yaml 1
+./scripts/load_xapps.sh configs/openran_live_prom_true_3ue_triad.yaml 1
 ```
 
 ## 7. Optional: offline imitation warm-start
@@ -74,7 +74,7 @@ Run DRL training with warm-start enabled:
 
 ```bash
 PYTHONPATH=. python3 scripts/train_drl.py \
-  --config configs/openran_live_prom_true_100ue_randomized.yaml \
+  --config configs/openran_live_prom_true_3ue_triad.yaml \
   --controllers ppo_train \
   --seeds 42 123 456 \
   --output-dir results/phase2_ppo_warmstart \
@@ -87,27 +87,8 @@ PYTHONPATH=. python3 scripts/train_drl.py \
 ## 8. Stop the stack
 
 ```bash
-bash scripts/stop_oran_live_100ue_xapps.sh
+bash scripts/stop_oran_live_testbed_xapps.sh
 ```
-
-## 9. Phase 3 live matrix
-
-Run the full Phase 3 scenario matrix (eMBB, mixed SLA, burst, fading, 5-slice):
-
-```bash
-./scripts/run_phase3_live_matrix.sh
-```
-
-Optional overrides:
-
-```bash
-HORIZON_STEPS=300 STEP_SECONDS=1 ./scripts/run_phase3_live_matrix.sh results/phase3/live_matrix 42 123 456 789 999 1001 1002 1003 1004 1005
-```
-
-Outputs:
-- Scenario-level summaries: `results/phase3/live_matrix/<scenario>/comparison_summary.csv`
-- Aggregate stats: `results/phase3/live_matrix/_stats/phase3_summary.csv`
-- Significance tests: `results/phase3/live_matrix/_stats/phase3_significance.csv`
 
 ## Live-only enforcement
 

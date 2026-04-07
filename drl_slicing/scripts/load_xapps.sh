@@ -4,9 +4,9 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$BASE_DIR"
 
-CONFIG="${1:-configs/openran_live_prom_true_100ue_randomized.yaml}"
+CONFIG="${1:-configs/openran_live_prom_true_3ue_triad.yaml}"
 REPEAT="${2:-1}"
-UE_COUNT="${UE_COUNT:-5}"
+UE_COUNT="${UE_COUNT:-3}"
 ACTIVE_ALGO="${ACTIVE_ALGO:-dqn}"
 
 if ! docker ps --format '{{.Names}}' | grep -q '^amf$' \

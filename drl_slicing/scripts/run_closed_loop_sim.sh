@@ -6,7 +6,8 @@ DRL_DIR="$ROOT_DIR/drl_slicing"
 
 DRY_RUN=0
 ACTIVE_ALGO="dqn"
-UE_COUNT=100
+UE_COUNT=3
+PROFILE_MODE="auto"
 FORCE_HIGH_LOAD=0
 OAI_UE_IMAGE=""
 OAI_LAUNCH_MODE=""
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
       UE_COUNT="$2"
       shift 2
       ;;
+    --profile-mode)
+      PROFILE_MODE="$2"
+      shift 2
+      ;;
     --force-high-load)
       FORCE_HIGH_LOAD=1
       shift
@@ -39,7 +44,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--active-algo dqn|a2c] [--ue-count N] [--force-high-load] [--oai-ue-image IMAGE] [--oai-launch-mode env|local-build] [--dry-run]"
+      echo "Usage: $0 [--active-algo dqn|a2c] [--ue-count N] [--profile-mode auto|ratio|triad] [--force-high-load] [--oai-ue-image IMAGE] [--oai-launch-mode env|local-build] [--dry-run]"
       exit 2
       ;;
   esac
@@ -55,16 +60,27 @@ if ! [[ "$UE_COUNT" =~ ^[0-9]+$ ]] || (( UE_COUNT <= 0 )); then
   exit 2
 fi
 
+if [[ "$PROFILE_MODE" != "auto" && "$PROFILE_MODE" != "ratio" && "$PROFILE_MODE" != "triad" ]]; then
+  echo "--profile-mode must be auto, ratio, or triad"
+  exit 2
+fi
+
+if [[ "$PROFILE_MODE" == "triad" && "$UE_COUNT" -ne 3 ]]; then
+  echo "--profile-mode triad requires --ue-count 3"
+  exit 2
+fi
+
 if [[ -n "$OAI_LAUNCH_MODE" && "$OAI_LAUNCH_MODE" != "env" && "$OAI_LAUNCH_MODE" != "local-build" ]]; then
   echo "--oai-launch-mode must be env or local-build"
   exit 2
 fi
 
 CMD=(
-  bash "$DRL_DIR/scripts/run_oran_live_100ue_xapps.sh"
+  bash "$DRL_DIR/scripts/run_oran_live_testbed_xapps.sh"
   --gnb-mode oai
   --ue-stack oai
   --ue-count "$UE_COUNT"
+  --profile-mode "$PROFILE_MODE"
   --active-algo "$ACTIVE_ALGO"
 )
 
@@ -88,6 +104,7 @@ echo "Launching closed-loop simulation preset"
 echo "  gNB mode         : oai"
 echo "  UE stack         : oai (native OAI NR-UE)"
 echo "  Requested UEs    : $UE_COUNT"
+echo "  Profile mode     : $PROFILE_MODE"
 echo "  Active controller: $ACTIVE_ALGO"
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "  Dry-run          : enabled"

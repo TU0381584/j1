@@ -4,7 +4,7 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$BASE_DIR"
 
-CONFIG="${1:-configs/openran_live_prom_true_100ue_randomized.yaml}"
+CONFIG="${1:-configs/openran_live_prom_true_3ue_triad.yaml}"
 OUT_DIR="${2:-results/phaseB_eval}"
 
 # 1) Load both models as xApps (single run warm start)

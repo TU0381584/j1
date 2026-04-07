@@ -63,6 +63,7 @@ done
 
 echo "[3/5] Stop generated UE fleet"
 run_cmd "cd '$DOCKER_DIR' && docker compose -f '$GEN_DIR/nr-ue-fleet.yaml' down >/dev/null 2>&1 || true"
+run_cmd "cd '$DOCKER_DIR' && docker compose -f '$GEN_DIR/nr-ue-oai-fleet.yaml' down >/dev/null 2>&1 || true"
 run_cmd "docker ps -a --format '{{.Names}}' | grep '^nr_ue_' | xargs -r docker rm -f >/dev/null 2>&1 || true"
 
 echo "[4/5] Stop gNB stack(s)"

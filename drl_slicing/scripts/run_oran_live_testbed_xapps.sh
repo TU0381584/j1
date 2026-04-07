@@ -6,9 +6,10 @@ DRL_DIR="$ROOT_DIR/drl_slicing"
 DOCKER_DIR="$ROOT_DIR/docker_open5gs"
 GEN_DIR="$DOCKER_DIR/generated"
 
-UE_COUNT=100
+UE_COUNT=3
 EMBB_RATIO=0.7
 RANDOM_SEED=42
+PROFILE_MODE="triad"
 ACTIVE_ALGO="dqn"
 GNB_MODE="ueransim"
 UE_STACK="ueransim"
@@ -21,7 +22,7 @@ OAI_LAUNCH_MODE="env"
 OAI_UE_IMAGE_SET=0
 OAI_LAUNCH_MODE_SET=0
 
-LIVE_CONFIG="$DRL_DIR/configs/openran_live_prom_true_100ue_randomized.yaml"
+LIVE_CONFIG="$DRL_DIR/configs/openran_live_prom_true_3ue_triad.yaml"
 UE_COMPOSE_FILE="$GEN_DIR/nr-ue-fleet.yaml"
 UE_PROFILE_CSV="$GEN_DIR/ue_fleet_profiles.csv"
 
@@ -37,6 +38,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --random-seed)
       RANDOM_SEED="$2"
+      shift 2
+      ;;
+    --profile-mode)
+      PROFILE_MODE="$2"
       shift 2
       ;;
     --active-algo)
@@ -83,7 +88,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--ue-count N] [--embb-ratio R] [--random-seed S] [--active-algo dqn|a2c] [--gnb-mode ueransim|oai] [--ue-stack ueransim|oai|external] [--traffic-target-ip IP] [--core-container NAME] [--oai-ue-image IMAGE] [--oai-launch-mode env|local-build] [--config PATH] [--dry-run] [--force-high-load]"
+      echo "Usage: $0 [--ue-count N] [--embb-ratio R] [--random-seed S] [--profile-mode auto|ratio|triad] [--active-algo dqn|a2c] [--gnb-mode ueransim|oai] [--ue-stack ueransim|oai|external] [--traffic-target-ip IP] [--core-container NAME] [--oai-ue-image IMAGE] [--oai-launch-mode env|local-build] [--config PATH] [--dry-run] [--force-high-load]"
       exit 2
       ;;
   esac
@@ -96,6 +101,16 @@ fi
 
 if ! [[ "$UE_COUNT" =~ ^[0-9]+$ ]] || (( UE_COUNT <= 0 )); then
   echo "--ue-count must be a positive integer"
+  exit 2
+fi
+
+if [[ "$PROFILE_MODE" != "auto" && "$PROFILE_MODE" != "ratio" && "$PROFILE_MODE" != "triad" ]]; then
+  echo "--profile-mode must be auto, ratio, or triad"
+  exit 2
+fi
+
+if [[ "$PROFILE_MODE" == "triad" && "$UE_COUNT" -ne 3 ]]; then
+  echo "--profile-mode triad requires --ue-count 3"
   exit 2
 fi
 
@@ -274,6 +289,7 @@ echo "Starting ORAN live E2E run with DRL xApps"
 echo "  UE count         : $UE_COUNT"
 echo "  eMBB ratio       : $EMBB_RATIO"
 echo "  Random seed      : $RANDOM_SEED"
+echo "  Profile mode     : $PROFILE_MODE"
 echo "  Active controller: $ACTIVE_ALGO"
 echo "  gNB mode         : $GNB_MODE"
 echo "  UE stack         : $UE_STACK"
@@ -286,9 +302,9 @@ if [[ -n "$GNB_IP_OVERRIDE" ]]; then
 fi
 echo "  Config           : $LIVE_CONFIG"
 
-echo "[1/10] Generate 100-UE fleet compose + profiles"
+echo "[1/10] Generate UE fleet compose + profiles"
 if [[ "$UE_STACK" == "ueransim" || "$UE_STACK" == "oai" ]]; then
-  GEN_CMD="cd '$DRL_DIR' && /usr/bin/python3 scripts/generate_ue_fleet_compose.py --ue-count '$UE_COUNT' --embb-ratio '$EMBB_RATIO' --random-seed '$RANDOM_SEED' --output-compose '$UE_COMPOSE_FILE' --output-profiles '$UE_PROFILE_CSV' --ue-stack '$UE_STACK'"
+  GEN_CMD="cd '$DRL_DIR' && /usr/bin/python3 scripts/generate_ue_fleet_compose.py --ue-count '$UE_COUNT' --embb-ratio '$EMBB_RATIO' --random-seed '$RANDOM_SEED' --profile-mode '$PROFILE_MODE' --output-compose '$UE_COMPOSE_FILE' --output-profiles '$UE_PROFILE_CSV' --ue-stack '$UE_STACK'"
   if [[ -n "$GNB_IP_OVERRIDE" ]]; then
     GEN_CMD+=" --gnb-ip-override '$GNB_IP_OVERRIDE'"
   fi
@@ -322,7 +338,7 @@ else
   echo "Skipping UE fleet startup (UE stack is external)"
 fi
 
-echo "[6/10] Start randomized eMBB/URLLC traffic loops"
+echo "[6/10] Start profile-based traffic loops (eMBB/URLLC/mMTC)"
 if [[ "$UE_STACK" == "ueransim" || "$UE_STACK" == "oai" ]]; then
   run_cmd "cd '$DRL_DIR' && bash scripts/start_ue_traffic_profiles.sh --profiles '$UE_PROFILE_CSV' --target-ip '$TRAFFIC_TARGET_IP'"
 else
@@ -377,4 +393,4 @@ echo "  tail -f $DRL_DIR/results/xapps/xapp-a2c-live.log"
 echo "  curl -s --get 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=fivegs_upffunction_upf_sessionnbr'"
 echo ""
 echo "To stop everything cleanly:"
-echo "  $DRL_DIR/scripts/stop_oran_live_100ue_xapps.sh"
+echo "  $DRL_DIR/scripts/stop_oran_live_testbed_xapps.sh"
