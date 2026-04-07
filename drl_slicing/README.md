@@ -51,6 +51,32 @@ Run the IEEE comparison package:
 ./scripts/run_ieee_access_rerun.sh
 ```
 
+## Optional Offline Warm-Start
+
+Phase 2 includes offline imitation warm-start for DRL policies.
+
+Build a state-action dataset from prior baseline/DRL run logs:
+
+```bash
+PYTHONPATH=. python3 scripts/build_offline_warmstart_dataset.py \
+  --input results/ieee_access_rerun/rule_based \
+  --output data/offline_warmstart_dataset.csv
+```
+
+Launch training with warm-start enabled (example: PPO):
+
+```bash
+PYTHONPATH=. python3 scripts/train_drl.py \
+  --config configs/openran_live_prom_true_100ue_randomized.yaml \
+  --controllers ppo_train \
+  --seeds 42 123 456 \
+  --output-dir results/phase2_ppo_warmstart \
+  --offline-warm-start \
+  --warm-start-source data/offline_warmstart_dataset.csv \
+  --warm-start-epochs 3 \
+  --warm-start-batch-size 64
+```
+
 ## Enforced live-only policy
 
 - `collector.mode` must be `prometheus`.

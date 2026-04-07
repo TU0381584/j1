@@ -110,6 +110,47 @@ class DrlControllerStub(RuleBasedSLAController):
         super().__init__(targets, cfg)
 
 
+def _apply_offline_warm_start(
+    policy: RLPolicy,
+    cfg: ControllerConfig,
+    state_dim: int,
+    action_dim: int,
+) -> Dict:
+    """Apply offline behavior-cloning warm-start if enabled in config."""
+    if not cfg.offline_warm_start:
+        return {}
+
+    source_path = cfg.warm_start_dataset_path.strip()
+    if not source_path:
+        raise ValueError(
+            "offline_warm_start is enabled, but controller.warm_start_dataset_path is empty."
+        )
+
+    from .offline_warmstart import load_state_action_dataset
+
+    states, actions = load_state_action_dataset(
+        source_path=source_path,
+        expected_state_dim=state_dim,
+        max_samples=max(0, int(cfg.warm_start_max_samples)),
+    )
+
+    metrics = policy.behavior_clone_train(
+        states=states,
+        actions=actions,
+        epochs=max(1, int(cfg.warm_start_epochs)),
+        batch_size=max(1, int(cfg.warm_start_batch_size)),
+    )
+    metrics.update(
+        {
+            "source": source_path,
+            "samples_loaded": int(states.shape[0]),
+            "epochs": int(max(1, int(cfg.warm_start_epochs))),
+            "batch_size": int(max(1, int(cfg.warm_start_batch_size))),
+        }
+    )
+    return metrics
+
+
 class DQNController(Controller):
     """
     DRL controller using Deep Q-Network policy.
@@ -156,6 +197,17 @@ class DQNController(Controller):
             )
         else:
             self.trainer = None
+
+        self._warm_start_metrics: Dict = {}
+        self._warm_start_emitted = False
+        if train and cfg.offline_warm_start:
+            self._warm_start_metrics = _apply_offline_warm_start(
+                policy=self.policy,
+                cfg=cfg,
+                state_dim=self.state_encoder.state_dim,
+                action_dim=self.action_decoder.action_dim,
+            )
+
         self._last_state = None
         self._last_action_idx = None
 
@@ -199,7 +251,11 @@ class DQNController(Controller):
             next_state,
             done,
         )
-        return self.trainer.get_metrics()
+        metrics = self.trainer.get_metrics()
+        if self._warm_start_metrics and not self._warm_start_emitted:
+            metrics.update({f"warm_start_{k}": v for k, v in self._warm_start_metrics.items()})
+            self._warm_start_emitted = True
+        return metrics
 
     def record_transition(self, state: EnvState, action_list: List[SliceAction]) -> None:
         """Record current state/action for next train_step call."""
@@ -212,11 +268,14 @@ class DQNController(Controller):
         """Return current training metrics."""
         if self.trainer is None:
             return {}
-        return {
+        info = {
             "epsilon": self.policy.epsilon,
             "step_count": self.policy.train_step_count,
             **self.trainer.get_metrics(),
         }
+        if self._warm_start_metrics:
+            info.update({f"warm_start_{k}": v for k, v in self._warm_start_metrics.items()})
+        return info
 
     def save_checkpoint(self, path: str) -> None:
         self.policy.save_checkpoint(path)
@@ -267,6 +326,17 @@ class A2CController(Controller):
                 update_freq=4,
                 warmup_steps=100,
             )
+
+        self._warm_start_metrics: Dict = {}
+        self._warm_start_emitted = False
+        if train and cfg.offline_warm_start:
+            self._warm_start_metrics = _apply_offline_warm_start(
+                policy=self.policy,
+                cfg=cfg,
+                state_dim=self.state_encoder.state_dim,
+                action_dim=self.action_decoder.action_dim,
+            )
+
         self._last_state = None
         self._last_action_idx = None
 
@@ -307,16 +377,23 @@ class A2CController(Controller):
             next_state,
             done,
         )
-        return self.trainer.get_metrics()
+        metrics = self.trainer.get_metrics()
+        if self._warm_start_metrics and not self._warm_start_emitted:
+            metrics.update({f"warm_start_{k}": v for k, v in self._warm_start_metrics.items()})
+            self._warm_start_emitted = True
+        return metrics
 
     def get_training_info(self) -> Dict:
         """Return current training metrics."""
         if self.trainer is None:
             return {}
-        return {
+        info = {
             "step_count": self.policy.train_step_count,
             **self.trainer.get_metrics(),
         }
+        if self._warm_start_metrics:
+            info.update({f"warm_start_{k}": v for k, v in self._warm_start_metrics.items()})
+        return info
 
     def save_checkpoint(self, path: str) -> None:
         self.policy.save_checkpoint(path)
@@ -366,6 +443,16 @@ class PPOController(Controller):
                 warmup_steps=100,
             )
 
+        self._warm_start_metrics: Dict = {}
+        self._warm_start_emitted = False
+        if train and cfg.offline_warm_start:
+            self._warm_start_metrics = _apply_offline_warm_start(
+                policy=self.policy,
+                cfg=cfg,
+                state_dim=self.state_encoder.state_dim,
+                action_dim=self.action_decoder.action_dim,
+            )
+
         self._last_state = None
         self._last_action_idx = None
         self._last_log_prob = None
@@ -405,15 +492,22 @@ class PPOController(Controller):
             done,
             action_info=self._last_log_prob,
         )
-        return self.trainer.get_metrics()
+        metrics = self.trainer.get_metrics()
+        if self._warm_start_metrics and not self._warm_start_emitted:
+            metrics.update({f"warm_start_{k}": v for k, v in self._warm_start_metrics.items()})
+            self._warm_start_emitted = True
+        return metrics
 
     def get_training_info(self) -> Dict:
         if self.trainer is None:
             return {}
-        return {
+        info = {
             "step_count": self.policy.train_step_count,
             **self.trainer.get_metrics(),
         }
+        if self._warm_start_metrics:
+            info.update({f"warm_start_{k}": v for k, v in self._warm_start_metrics.items()})
+        return info
 
     def save_checkpoint(self, path: str) -> None:
         self.policy.save_checkpoint(path)

@@ -32,6 +32,11 @@ class ControllerConfig:
     alpha: float
     min_step: int
     max_step: int
+    offline_warm_start: bool = False
+    warm_start_dataset_path: str = ""
+    warm_start_epochs: int = 3
+    warm_start_batch_size: int = 64
+    warm_start_max_samples: int = 0
 
 
 @dataclass
@@ -92,6 +97,11 @@ def load_experiment_config(config_path: str) -> ExperimentConfig:
             alpha=float(controller_cfg.get("alpha", 0.2)),
             min_step=int(controller_cfg.get("min_step", 2)),
             max_step=int(controller_cfg.get("max_step", 5)),
+            offline_warm_start=bool(controller_cfg.get("offline_warm_start", False)),
+            warm_start_dataset_path=str(controller_cfg.get("warm_start_dataset_path", "")),
+            warm_start_epochs=int(controller_cfg.get("warm_start_epochs", 3)),
+            warm_start_batch_size=int(controller_cfg.get("warm_start_batch_size", 64)),
+            warm_start_max_samples=int(controller_cfg.get("warm_start_max_samples", 0)),
         ),
         output=OutputConfig(
             policy_json_path=output_cfg["policy_json_path"],

@@ -1,4 +1,5 @@
 import csv
+import json
 import os
 import subprocess
 import time
@@ -18,6 +19,7 @@ from .controllers import (
 )
 from .policy_io import write_rrm_policy_json
 from .reward import compute_sla_reward
+from .drl_training import StateEncoder, ActionDecoder
 
 
 def _assert_live_oai_stack_running() -> None:
@@ -118,10 +120,14 @@ def run_experiment(config: ExperimentConfig) -> None:
     slice_ids = list(targets.keys())
     collector = _build_collector(config, slice_ids)
     controller = _build_controller(config, targets)
+    state_encoder = StateEncoder(targets)
+    action_decoder = ActionDecoder(targets)
 
     for step in range(config.horizon_steps):
         state = collector.get_state(step)
         actions = controller.act(state)
+        state_vec = state_encoder.encode(state)
+        action_idx = action_decoder.encode_actions(actions)
         write_rrm_policy_json(config.output.policy_json_path, actions, targets)
 
         collector.on_action(actions, targets, step)
@@ -140,6 +146,8 @@ def run_experiment(config: ExperimentConfig) -> None:
             "reward": reward,
             "sla_violations": violations,
             "action_summary": summary,
+            "action_index": action_idx,
+            "state_vector": json.dumps(state_vec.tolist()),
         }
         if train_metrics:
             for key, value in train_metrics.items():

@@ -4,7 +4,7 @@ DRL training infrastructure: replay buffer, state encoding, and training loop.
 from typing import Dict, List, Tuple
 from collections import deque
 import numpy as np
-from .types import EnvState, SliceMetrics
+from .types import EnvState, SliceMetrics, SliceAction
 from .config import SliceTarget
 
 
@@ -131,6 +131,52 @@ class ActionDecoder:
             }
 
         return allocation
+
+    def _nearest_bin_index(self, bins: List[int], value: int) -> int:
+        """Map a ratio value to the closest discrete bin index."""
+        distances = [abs(bin_value - value) for bin_value in bins]
+        return int(np.argmin(distances))
+
+    def encode_allocation(self, allocation: Dict[str, Dict[str, int]]) -> int:
+        """
+        Convert per-slice allocation dictionary back to discrete action index.
+
+        Args:
+            allocation: {slice_id: {"min_ratio": int, "max_ratio": int}}
+
+        Returns:
+            Discrete action index compatible with `decode`.
+        """
+        action_per_slice = self.ratio_steps * self.ratio_steps
+        action_index = 0
+        multiplier = 1
+
+        for slice_id in self.slice_ids:
+            slice_alloc = allocation.get(slice_id)
+            if slice_alloc is None:
+                min_idx = 0
+                max_idx = 0
+            else:
+                min_ratio = int(slice_alloc.get("min_ratio", self.ratio_bins[slice_id]["min"][0]))
+                max_ratio = int(slice_alloc.get("max_ratio", self.ratio_bins[slice_id]["max"][0]))
+                if min_ratio > max_ratio:
+                    min_ratio = max_ratio
+                min_idx = self._nearest_bin_index(self.ratio_bins[slice_id]["min"], min_ratio)
+                max_idx = self._nearest_bin_index(self.ratio_bins[slice_id]["max"], max_ratio)
+
+            slice_action = min_idx + (max_idx * self.ratio_steps)
+            action_index += slice_action * multiplier
+            multiplier *= action_per_slice
+
+        return int(action_index)
+
+    def encode_actions(self, actions: List[SliceAction]) -> int:
+        """Convert list of SliceAction objects to discrete action index."""
+        allocation = {
+            action.slice_id: {"min_ratio": int(action.min_ratio), "max_ratio": int(action.max_ratio)}
+            for action in actions
+        }
+        return self.encode_allocation(allocation)
 
 
 class ReplayBuffer:

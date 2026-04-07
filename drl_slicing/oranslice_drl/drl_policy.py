@@ -34,6 +34,16 @@ class RLPolicy(ABC):
         """
         raise NotImplementedError
 
+    def behavior_clone_train(
+        self,
+        states: np.ndarray,
+        actions: np.ndarray,
+        epochs: int = 3,
+        batch_size: int = 64,
+    ) -> Dict:
+        """Optional supervised warm-start hook (override where supported)."""
+        raise NotImplementedError("Behavior-cloning warm-start is not implemented for this policy.")
+
     @abstractmethod
     def save_checkpoint(self, path: str) -> None:
         raise NotImplementedError
@@ -173,6 +183,65 @@ class DQNPolicy(RLPolicy):
             "avg_target_q": float(target_q_values.mean().item()),
         }
 
+    def behavior_clone_train(
+        self,
+        states: np.ndarray,
+        actions: np.ndarray,
+        epochs: int = 3,
+        batch_size: int = 64,
+    ) -> Dict:
+        """Supervised warm-start on discrete actions via cross-entropy."""
+        valid = (actions >= 0) & (actions < self.action_dim)
+        if not np.any(valid):
+            raise ValueError("No valid actions available for DQN warm-start.")
+
+        states = states[valid]
+        actions = actions[valid]
+        if len(states) == 0:
+            raise ValueError("Empty dataset after warm-start action filtering.")
+
+        loss_fn = nn.CrossEntropyLoss()
+        losses: List[float] = []
+        accuracies: List[float] = []
+
+        self.q_network.train()
+        for _ in range(max(1, int(epochs))):
+            perm = np.random.permutation(len(states))
+            epoch_loss = 0.0
+            epoch_correct = 0
+            epoch_count = 0
+
+            for start in range(0, len(states), max(1, int(batch_size))):
+                idx = perm[start : start + max(1, int(batch_size))]
+                batch_states = torch.FloatTensor(states[idx]).to(self.device)
+                batch_actions = torch.LongTensor(actions[idx]).to(self.device)
+
+                logits = self.q_network(batch_states)
+                loss = loss_fn(logits, batch_actions)
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=1.0)
+                self.optimizer.step()
+
+                preds = logits.argmax(dim=1)
+                epoch_correct += int((preds == batch_actions).sum().item())
+                epoch_count += int(batch_actions.shape[0])
+                epoch_loss += float(loss.item()) * int(batch_actions.shape[0])
+
+            losses.append(epoch_loss / max(epoch_count, 1))
+            accuracies.append(epoch_correct / max(epoch_count, 1))
+
+        # Keep target network aligned with supervised warm-started Q-network.
+        self.target_network.load_state_dict(self.q_network.state_dict())
+
+        return {
+            "bc_loss": float(np.mean(losses)),
+            "bc_accuracy": float(np.mean(accuracies)),
+            "bc_samples": int(len(states)),
+            "bc_epochs": int(max(1, int(epochs))),
+        }
+
     def save_checkpoint(self, path: str) -> None:
         torch.save(
             {
@@ -309,6 +378,62 @@ class A2CPolicy(RLPolicy):
             "avg_value": float(values.mean().item()),
         }
 
+    def behavior_clone_train(
+        self,
+        states: np.ndarray,
+        actions: np.ndarray,
+        epochs: int = 3,
+        batch_size: int = 64,
+    ) -> Dict:
+        """Supervised warm-start of actor head using baseline actions."""
+        valid = (actions >= 0) & (actions < self.action_dim)
+        if not np.any(valid):
+            raise ValueError("No valid actions available for A2C warm-start.")
+
+        states = states[valid]
+        actions = actions[valid]
+        if len(states) == 0:
+            raise ValueError("Empty dataset after warm-start action filtering.")
+
+        loss_fn = nn.CrossEntropyLoss()
+        losses: List[float] = []
+        accuracies: List[float] = []
+
+        self.network.train()
+        for _ in range(max(1, int(epochs))):
+            perm = np.random.permutation(len(states))
+            epoch_loss = 0.0
+            epoch_correct = 0
+            epoch_count = 0
+
+            for start in range(0, len(states), max(1, int(batch_size))):
+                idx = perm[start : start + max(1, int(batch_size))]
+                batch_states = torch.FloatTensor(states[idx]).to(self.device)
+                batch_actions = torch.LongTensor(actions[idx]).to(self.device)
+
+                action_logits, _ = self.network(batch_states)
+                loss = loss_fn(action_logits, batch_actions)
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=1.0)
+                self.optimizer.step()
+
+                preds = action_logits.argmax(dim=1)
+                epoch_correct += int((preds == batch_actions).sum().item())
+                epoch_count += int(batch_actions.shape[0])
+                epoch_loss += float(loss.item()) * int(batch_actions.shape[0])
+
+            losses.append(epoch_loss / max(epoch_count, 1))
+            accuracies.append(epoch_correct / max(epoch_count, 1))
+
+        return {
+            "bc_loss": float(np.mean(losses)),
+            "bc_accuracy": float(np.mean(accuracies)),
+            "bc_samples": int(len(states)),
+            "bc_epochs": int(max(1, int(epochs))),
+        }
+
     def save_checkpoint(self, path: str) -> None:
         torch.save(
             {
@@ -439,6 +564,62 @@ class PPOPolicy(RLPolicy):
             "grad_norm": float(grad_norm.item()),
             "avg_advantage": float(advantages.mean().item()),
             "avg_value": float(values.mean().item()),
+        }
+
+    def behavior_clone_train(
+        self,
+        states: np.ndarray,
+        actions: np.ndarray,
+        epochs: int = 3,
+        batch_size: int = 64,
+    ) -> Dict:
+        """Supervised warm-start of PPO actor head from baseline actions."""
+        valid = (actions >= 0) & (actions < self.action_dim)
+        if not np.any(valid):
+            raise ValueError("No valid actions available for PPO warm-start.")
+
+        states = states[valid]
+        actions = actions[valid]
+        if len(states) == 0:
+            raise ValueError("Empty dataset after warm-start action filtering.")
+
+        loss_fn = nn.CrossEntropyLoss()
+        losses: List[float] = []
+        accuracies: List[float] = []
+
+        self.network.train()
+        for _ in range(max(1, int(epochs))):
+            perm = np.random.permutation(len(states))
+            epoch_loss = 0.0
+            epoch_correct = 0
+            epoch_count = 0
+
+            for start in range(0, len(states), max(1, int(batch_size))):
+                idx = perm[start : start + max(1, int(batch_size))]
+                batch_states = torch.FloatTensor(states[idx]).to(self.device)
+                batch_actions = torch.LongTensor(actions[idx]).to(self.device)
+
+                action_logits, _ = self.network(batch_states)
+                loss = loss_fn(action_logits, batch_actions)
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=1.0)
+                self.optimizer.step()
+
+                preds = action_logits.argmax(dim=1)
+                epoch_correct += int((preds == batch_actions).sum().item())
+                epoch_count += int(batch_actions.shape[0])
+                epoch_loss += float(loss.item()) * int(batch_actions.shape[0])
+
+            losses.append(epoch_loss / max(epoch_count, 1))
+            accuracies.append(epoch_correct / max(epoch_count, 1))
+
+        return {
+            "bc_loss": float(np.mean(losses)),
+            "bc_accuracy": float(np.mean(accuracies)),
+            "bc_samples": int(len(states)),
+            "bc_epochs": int(max(1, int(epochs))),
         }
 
     def save_checkpoint(self, path: str) -> None:

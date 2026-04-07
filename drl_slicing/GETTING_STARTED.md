@@ -60,7 +60,31 @@ Outputs are written under `results/online_ran_compare/`.
 ./scripts/load_xapps.sh configs/openran_live_prom_true_100ue_randomized.yaml 1
 ```
 
-## 7. Stop the stack
+## 7. Optional: offline imitation warm-start
+
+Create a compact warm-start dataset from existing run logs:
+
+```bash
+PYTHONPATH=. python3 scripts/build_offline_warmstart_dataset.py \
+  --input results/ieee_access_rerun/rule_based \
+  --output data/offline_warmstart_dataset.csv
+```
+
+Run DRL training with warm-start enabled:
+
+```bash
+PYTHONPATH=. python3 scripts/train_drl.py \
+  --config configs/openran_live_prom_true_100ue_randomized.yaml \
+  --controllers ppo_train \
+  --seeds 42 123 456 \
+  --output-dir results/phase2_ppo_warmstart \
+  --offline-warm-start \
+  --warm-start-source data/offline_warmstart_dataset.csv \
+  --warm-start-epochs 3 \
+  --warm-start-batch-size 64
+```
+
+## 8. Stop the stack
 
 ```bash
 bash scripts/stop_oran_live_100ue_xapps.sh

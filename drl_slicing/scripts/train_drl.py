@@ -118,6 +118,11 @@ def run_controller(
     horizon_steps: Optional[int] = None,
     step_seconds: Optional[int] = None,
     continue_on_error: bool = True,
+    offline_warm_start: bool = False,
+    warm_start_source: Optional[str] = None,
+    warm_start_epochs: Optional[int] = None,
+    warm_start_batch_size: Optional[int] = None,
+    warm_start_max_samples: Optional[int] = None,
 ) -> Dict:
     """
     Run one controller mode across multiple seeds.
@@ -130,6 +135,11 @@ def run_controller(
         horizon_steps: optional override of config horizon
         step_seconds: optional override of collector step_seconds
         continue_on_error: keep sweep running if one seed fails
+        offline_warm_start: enable behavior-cloning warm-start before online training
+        warm_start_source: optional dataset/log source path override
+        warm_start_epochs: optional warm-start epochs override
+        warm_start_batch_size: optional warm-start batch-size override
+        warm_start_max_samples: optional sample cap for warm-start dataset
 
     Returns:
         summary stats for the controller
@@ -162,6 +172,17 @@ def run_controller(
             config.horizon_steps = horizon_steps
         if step_seconds is not None:
             config.collector.step_seconds = step_seconds
+
+        if offline_warm_start:
+            config.controller.offline_warm_start = True
+        if warm_start_source is not None:
+            config.controller.warm_start_dataset_path = warm_start_source
+        if warm_start_epochs is not None:
+            config.controller.warm_start_epochs = warm_start_epochs
+        if warm_start_batch_size is not None:
+            config.controller.warm_start_batch_size = warm_start_batch_size
+        if warm_start_max_samples is not None:
+            config.controller.warm_start_max_samples = warm_start_max_samples
 
         config.name = f"{config.name}_{controller_mode}"
         config.output.policy_json_path = str(run_dir / "rrmPolicy.json")
@@ -230,6 +251,11 @@ def run_algorithm(
     horizon_steps: Optional[int] = None,
     step_seconds: Optional[int] = None,
     continue_on_error: bool = True,
+    offline_warm_start: bool = False,
+    warm_start_source: Optional[str] = None,
+    warm_start_epochs: Optional[int] = None,
+    warm_start_batch_size: Optional[int] = None,
+    warm_start_max_samples: Optional[int] = None,
 ) -> Dict:
     """Backward-compatible wrapper for legacy algorithm-based invocation."""
     if algorithm == "dqn":
@@ -249,6 +275,11 @@ def run_algorithm(
         horizon_steps=horizon_steps,
         step_seconds=step_seconds,
         continue_on_error=continue_on_error,
+        offline_warm_start=offline_warm_start,
+        warm_start_source=warm_start_source,
+        warm_start_epochs=warm_start_epochs,
+        warm_start_batch_size=warm_start_batch_size,
+        warm_start_max_samples=warm_start_max_samples,
     )
 
 
@@ -454,6 +485,39 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--offline-warm-start",
+        action="store_true",
+        help="Enable offline behavior-cloning warm-start before online training",
+    )
+
+    parser.add_argument(
+        "--warm-start-source",
+        default=None,
+        help="CSV file or directory containing state_vector/action_index data",
+    )
+
+    parser.add_argument(
+        "--warm-start-epochs",
+        type=int,
+        default=None,
+        help="Optional warm-start epochs override",
+    )
+
+    parser.add_argument(
+        "--warm-start-batch-size",
+        type=int,
+        default=None,
+        help="Optional warm-start batch size override",
+    )
+
+    parser.add_argument(
+        "--warm-start-max-samples",
+        type=int,
+        default=None,
+        help="Optional cap on warm-start samples (0 or unset means all)",
+    )
+
+    parser.add_argument(
         "--compare",
         action="store_true",
         help="Generate aggregate comparison for output-dir",
@@ -509,6 +573,11 @@ def main() -> int:
                 horizon_steps=args.horizon_steps,
                 step_seconds=args.step_seconds,
                 continue_on_error=args.continue_on_error,
+                offline_warm_start=args.offline_warm_start,
+                warm_start_source=args.warm_start_source,
+                warm_start_epochs=args.warm_start_epochs,
+                warm_start_batch_size=args.warm_start_batch_size,
+                warm_start_max_samples=args.warm_start_max_samples,
             )
         did_run = True
 
