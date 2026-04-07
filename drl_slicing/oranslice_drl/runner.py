@@ -1,9 +1,10 @@
 import csv
 import os
+import subprocess
 import time
 from typing import Dict, List
 
-from .collectors import CsvReplayCollector, MetricsCollector, PrometheusCollector, OnlineRanRandomCollector
+from .collectors import MetricsCollector, PrometheusCollector
 from .config import ExperimentConfig, SliceTarget
 from .controllers import (
     Controller,
@@ -19,27 +20,60 @@ from .policy_io import write_rrm_policy_json
 from .reward import compute_sla_reward
 
 
+def _assert_live_oai_stack_running() -> None:
+    """Fail fast unless the live OAI E2E stack is currently running."""
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as error:
+        raise RuntimeError("Docker CLI not found. Live OAI E2E mode requires Docker.") from error
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError("Failed to query Docker containers for live OAI preflight.") from error
+
+    names = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    required = ["amf", "smf", "upf", "oaignb"]
+    missing = [name for name in required if name not in names]
+
+    if missing:
+        missing_txt = ", ".join(missing)
+        raise RuntimeError(
+            "Live OAI E2E stack is not up. Missing containers: "
+            f"{missing_txt}. Start it first with: "
+            "bash drl_slicing/scripts/run_closed_loop_sim.sh --ue-count 5 --active-algo dqn"
+        )
+
+    if not any(name.startswith("nr_ue_") for name in names):
+        raise RuntimeError(
+            "Live OAI E2E stack check failed: no OAI UE containers (nr_ue_*) are running. "
+            "Start the stack with run_closed_loop_sim.sh before training."
+        )
+
+
 def _build_targets(config: ExperimentConfig) -> Dict[str, SliceTarget]:
     return {item.slice_id: item for item in config.slices}
 
 
-def _build_collector(config: ExperimentConfig, slice_ids: List[str], targets: Dict[str, SliceTarget]) -> MetricsCollector:
+def _build_collector(config: ExperimentConfig, slice_ids: List[str]) -> MetricsCollector:
     mode = config.collector.mode
-    if mode == "csv_replay":
-        return CsvReplayCollector(config.collector.csv_path, slice_ids, config.collector.step_seconds)
+
+    if mode != "prometheus":
+        raise ValueError(
+            "Replay/synthetic collectors are disabled. "
+            "Use collector.mode=prometheus with the live OAI E2E stack."
+        )
+
+    _assert_live_oai_stack_running()
+
     if mode == "prometheus":
         return PrometheusCollector(
             config.collector.prometheus_url,
             config.collector.metric_queries,
             slice_ids,
             config.collector.step_seconds,
-        )
-    if mode == "online_ran_random":
-        return OnlineRanRandomCollector(
-            slice_ids,
-            targets,
-            config.collector.step_seconds,
-            config.random_seed,
         )
     raise ValueError(f"Unknown collector mode: {mode}")
 
@@ -82,7 +116,7 @@ def _append_run_log(path: str, record: dict) -> None:
 def run_experiment(config: ExperimentConfig) -> None:
     targets = _build_targets(config)
     slice_ids = list(targets.keys())
-    collector = _build_collector(config, slice_ids, targets)
+    collector = _build_collector(config, slice_ids)
     controller = _build_controller(config, targets)
 
     for step in range(config.horizon_steps):

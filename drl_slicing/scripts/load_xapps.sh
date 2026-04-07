@@ -4,8 +4,19 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$BASE_DIR"
 
-CONFIG="${1:-configs/rfsim_dqn_training.yaml}"
+CONFIG="${1:-configs/openran_live_prom_true_100ue_randomized.yaml}"
 REPEAT="${2:-1}"
+UE_COUNT="${UE_COUNT:-5}"
+ACTIVE_ALGO="${ACTIVE_ALGO:-dqn}"
+
+if ! docker ps --format '{{.Names}}' | grep -q '^amf$' \
+  || ! docker ps --format '{{.Names}}' | grep -q '^smf$' \
+  || ! docker ps --format '{{.Names}}' | grep -q '^upf$' \
+  || ! docker ps --format '{{.Names}}' | grep -q '^oaignb$' \
+  || ! docker ps --format '{{.Names}}' | grep -q '^nr_ue_'; then
+  echo "Live OAI stack not detected. Starting it now..."
+  bash scripts/run_closed_loop_sim.sh --ue-count "$UE_COUNT" --active-algo "$ACTIVE_ALGO"
+fi
 
 mkdir -p results/xapps
 

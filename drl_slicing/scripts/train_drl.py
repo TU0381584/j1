@@ -444,7 +444,7 @@ def parse_args() -> argparse.Namespace:
         "--step-seconds",
         type=int,
         default=None,
-        help="Optional collector step_seconds override (use 0 for fast replay)",
+        help="Optional collector step_seconds override for live Prometheus polling",
     )
 
     parser.add_argument(

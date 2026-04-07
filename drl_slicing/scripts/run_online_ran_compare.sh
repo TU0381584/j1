@@ -4,13 +4,24 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$BASE_DIR"
 
-CONFIG="${1:-configs/online_ran_random_train.yaml}"
+CONFIG="${1:-configs/openran_live_prom_true_100ue_randomized.yaml}"
 OUT_DIR="${2:-results/online_ran_compare}"
+UE_COUNT="${UE_COUNT:-5}"
+ACTIVE_ALGO="${ACTIVE_ALGO:-dqn}"
 
 # Use 10 seeds by default for publication-grade significance
 SEEDS=(42 123 456 789 999 1001 1002 1003 1004 1005)
 
-echo "[1/5] Running DQN only (online randomized RAN)..."
+if ! docker ps --format '{{.Names}}' | grep -q '^amf$' \
+  || ! docker ps --format '{{.Names}}' | grep -q '^smf$' \
+  || ! docker ps --format '{{.Names}}' | grep -q '^upf$' \
+  || ! docker ps --format '{{.Names}}' | grep -q '^oaignb$' \
+  || ! docker ps --format '{{.Names}}' | grep -q '^nr_ue_'; then
+  echo "Live OAI stack not detected. Starting it now..."
+  bash scripts/run_closed_loop_sim.sh --ue-count "$UE_COUNT" --active-algo "$ACTIVE_ALGO"
+fi
+
+echo "[1/5] Running DQN only (live OAI E2E)..."
 PYTHONPATH=. python3 scripts/train_drl.py \
   --config "$CONFIG" \
   --algorithms dqn \
@@ -18,7 +29,7 @@ PYTHONPATH=. python3 scripts/train_drl.py \
   --output-dir "$OUT_DIR" \
   --train
 
-echo "[2/5] Running A2C only (online randomized RAN)..."
+echo "[2/5] Running A2C only (live OAI E2E)..."
 PYTHONPATH=. python3 scripts/train_drl.py \
   --config "$CONFIG" \
   --algorithms a2c \
