@@ -3,11 +3,20 @@ DRL Policy implementations: DQN, A2C, and PPO.
 Abstract base class for algorithm-agnostic integration.
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Any
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
+
+def _load_checkpoint_file(path: str, device: torch.device) -> Dict[str, Any]:
+    """Load checkpoint files with secure defaults when supported by torch."""
+    try:
+        return torch.load(path, map_location=device, weights_only=True)
+    except TypeError:
+        # Backward compatibility with older torch versions that lack weights_only.
+        return torch.load(path, map_location=device)
 
 
 class RLPolicy(ABC):
@@ -255,7 +264,7 @@ class DQNPolicy(RLPolicy):
         )
 
     def load_checkpoint(self, path: str) -> None:
-        ckpt = torch.load(path, map_location=self.device)
+        ckpt = _load_checkpoint_file(path, self.device)
         self.q_network.load_state_dict(ckpt["q_network"])
         self.target_network.load_state_dict(ckpt["target_network"])
         self.optimizer.load_state_dict(ckpt["optimizer"])
@@ -445,7 +454,7 @@ class A2CPolicy(RLPolicy):
         )
 
     def load_checkpoint(self, path: str) -> None:
-        ckpt = torch.load(path, map_location=self.device)
+        ckpt = _load_checkpoint_file(path, self.device)
         self.network.load_state_dict(ckpt["network"])
         self.optimizer.load_state_dict(ckpt["optimizer"])
         self.train_step_count = ckpt["train_step_count"]
@@ -633,7 +642,7 @@ class PPOPolicy(RLPolicy):
         )
 
     def load_checkpoint(self, path: str) -> None:
-        ckpt = torch.load(path, map_location=self.device)
+        ckpt = _load_checkpoint_file(path, self.device)
         self.network.load_state_dict(ckpt["network"])
         self.optimizer.load_state_dict(ckpt["optimizer"])
         self.train_step_count = ckpt["train_step_count"]
