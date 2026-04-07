@@ -13,6 +13,7 @@ from .controllers import (
     StaticController,
     DQNController,
     A2CController,
+    PPOController,
 )
 from .policy_io import write_rrm_policy_json
 from .reward import compute_sla_reward
@@ -61,6 +62,10 @@ def _build_controller(config: ExperimentConfig, targets: Dict[str, SliceTarget])
         return A2CController(targets, config.controller, train=False)
     if mode == "a2c_train":
         return A2CController(targets, config.controller, train=True)
+    if mode == "ppo":
+        return PPOController(targets, config.controller, train=False)
+    if mode == "ppo_train":
+        return PPOController(targets, config.controller, train=True)
     raise ValueError(f"Unknown controller mode: {mode}")
 
 

@@ -1,5 +1,5 @@
 """
-DRL Policy implementations: DQN and A2C.
+DRL Policy implementations: DQN, A2C, and PPO.
 Abstract base class for algorithm-agnostic integration.
 """
 from abc import ABC, abstractmethod
@@ -195,7 +195,7 @@ class DQNPolicy(RLPolicy):
 
 
 class ActorCriticNetwork(nn.Module):
-    """Actor-Critic network for A2C policy (placeholder, implement in phase 2b)."""
+    """Shared Actor-Critic backbone used by A2C and PPO policies."""
 
     def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128):
         super().__init__()
@@ -304,6 +304,138 @@ class A2CPolicy(RLPolicy):
             "actor_loss": float(actor_loss.item()),
             "critic_loss": float(critic_loss.item()),
             "entropy": float(entropy.item()),
+            "grad_norm": float(grad_norm.item()),
+            "avg_advantage": float(advantages.mean().item()),
+            "avg_value": float(values.mean().item()),
+        }
+
+    def save_checkpoint(self, path: str) -> None:
+        torch.save(
+            {
+                "network": self.network.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "train_step_count": self.train_step_count,
+            },
+            path,
+        )
+
+    def load_checkpoint(self, path: str) -> None:
+        ckpt = torch.load(path, map_location=self.device)
+        self.network.load_state_dict(ckpt["network"])
+        self.optimizer.load_state_dict(ckpt["optimizer"])
+        self.train_step_count = ckpt["train_step_count"]
+
+
+class PPOPolicy(RLPolicy):
+    """
+    Proximal Policy Optimization policy with clipped surrogate loss.
+
+    This implementation uses one-step bootstrapped returns from the replay batch.
+    """
+
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        hidden_dim: int = 128,
+        learning_rate: float = 3e-4,
+        gamma: float = 0.99,
+        clip_epsilon: float = 0.2,
+        value_coef: float = 0.5,
+        entropy_coef: float = 0.01,
+        device: str = "cpu",
+    ):
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.learning_rate = learning_rate
+        self.gamma = gamma
+        self.clip_epsilon = clip_epsilon
+        self.value_coef = value_coef
+        self.entropy_coef = entropy_coef
+        self.device = torch.device(device)
+
+        self.network = ActorCriticNetwork(state_dim, action_dim, hidden_dim).to(self.device)
+        self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
+        self.train_step_count = 0
+
+    def select_action(self, state: np.ndarray, training: bool = False) -> Tuple[int, float]:
+        """
+        Select action from policy distribution.
+
+        Returns:
+            action index and log-probability of selected action.
+        """
+        state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            action_logits, _ = self.network(state_t)
+            probs = torch.softmax(action_logits, dim=1)
+            dist = torch.distributions.Categorical(probs)
+            if training:
+                action_t = dist.sample()
+            else:
+                action_t = torch.argmax(probs, dim=1)
+            log_prob_t = dist.log_prob(action_t)
+
+        return int(action_t.item()), float(log_prob_t.item())
+
+    def train_step(self, batch: Dict) -> Dict:
+        states = torch.FloatTensor(batch["states"]).to(self.device)
+        actions = torch.LongTensor(batch["actions"]).to(self.device)
+        rewards = torch.FloatTensor(batch["rewards"]).to(self.device)
+        next_states = torch.FloatTensor(batch["next_states"]).to(self.device)
+        dones = torch.FloatTensor(batch["dones"]).to(self.device)
+
+        # Old log-probs are captured at action time by the controller.
+        old_log_probs = batch.get("action_info")
+        if old_log_probs is None:
+            old_log_probs_t = None
+        else:
+            old_log_probs_t = torch.FloatTensor(old_log_probs).to(self.device)
+            if torch.isnan(old_log_probs_t).any():
+                old_log_probs_t = None
+
+        action_logits, values = self.network(states)
+        values = values.squeeze(-1)
+
+        with torch.no_grad():
+            _, next_values = self.network(next_states)
+            next_values = next_values.squeeze(-1)
+            returns = rewards + self.gamma * next_values * (1 - dones)
+            advantages = returns - values
+
+        dist = torch.distributions.Categorical(torch.softmax(action_logits, dim=1))
+        new_log_probs = dist.log_prob(actions)
+
+        if old_log_probs_t is None:
+            old_log_probs_t = new_log_probs.detach()
+
+        ratios = torch.exp(new_log_probs - old_log_probs_t)
+        surr1 = ratios * advantages
+        surr2 = torch.clamp(ratios, 1.0 - self.clip_epsilon, 1.0 + self.clip_epsilon) * advantages
+        policy_loss = -torch.min(surr1, surr2).mean()
+
+        value_loss = nn.functional.mse_loss(values, returns)
+        entropy = dist.entropy().mean()
+
+        total_loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
+
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        grad_norm = nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=1.0)
+        self.optimizer.step()
+
+        self.train_step_count += 1
+
+        approx_kl = (old_log_probs_t - new_log_probs).mean().abs()
+        clip_fraction = ((ratios - 1.0).abs() > self.clip_epsilon).float().mean()
+
+        return {
+            "loss": float(total_loss.item()),
+            "policy_loss": float(policy_loss.item()),
+            "value_loss": float(value_loss.item()),
+            "entropy": float(entropy.item()),
+            "approx_kl": float(approx_kl.item()),
+            "clip_fraction": float(clip_fraction.item()),
             "grad_norm": float(grad_norm.item()),
             "avg_advantage": float(advantages.mean().item()),
             "avg_value": float(values.mean().item()),

@@ -149,9 +149,10 @@ class ReplayBuffer:
         reward: float,
         next_state: np.ndarray,
         done: bool,
+        action_info: float = None,
     ) -> None:
         """Add transition to buffer."""
-        self.buffer.append((state, action, reward, next_state, done))
+        self.buffer.append((state, action, reward, next_state, done, action_info))
 
     def sample(self, batch_size: int) -> Dict[str, np.ndarray]:
         """Sample random batch from buffer."""
@@ -159,8 +160,13 @@ class ReplayBuffer:
             raise ValueError(f"Buffer has {len(self.buffer)} transitions, need {batch_size}")
 
         indices = np.random.choice(len(self.buffer), batch_size, replace=False)
-        states, actions, rewards, next_states, dones = zip(
+        states, actions, rewards, next_states, dones, action_infos = zip(
             *[self.buffer[i] for i in indices]
+        )
+
+        action_info_array = np.array(
+            [np.nan if value is None else float(value) for value in action_infos],
+            dtype=np.float32,
         )
 
         return {
@@ -169,6 +175,7 @@ class ReplayBuffer:
             "rewards": np.array(rewards, dtype=np.float32),
             "next_states": np.array(next_states, dtype=np.float32),
             "dones": np.array(dones, dtype=np.float32),
+            "action_info": action_info_array,
         }
 
     def __len__(self) -> int:
@@ -212,11 +219,12 @@ class DRLTrainer:
         reward: float,
         next_state: EnvState,
         done: bool,
+        action_info: float = None,
     ) -> None:
         """Record transition and update policy if ready."""
         state_vec = self.state_encoder.encode(state)
         next_state_vec = self.state_encoder.encode(next_state)
-        self.replay_buffer.add(state_vec, action, reward, next_state_vec, done)
+        self.replay_buffer.add(state_vec, action, reward, next_state_vec, done, action_info)
 
         self.step_count += 1
 

@@ -20,7 +20,7 @@ echo "  Seeds      : ${SEEDS[*]}"
 
 PYTHONPATH=. python3 scripts/train_drl.py \
   --config configs/rfsim_dqn_training.yaml \
-  --controllers dqn_train a2c_train rule_based static random \
+  --controllers dqn_train a2c_train ppo_train rule_based static random \
   --seeds "${SEEDS[@]}" \
   --horizon-steps "$HORIZON_STEPS" \
   --step-seconds 0 \

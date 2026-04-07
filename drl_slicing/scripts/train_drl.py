@@ -3,13 +3,13 @@
 DRL experiment orchestrator for DRL and baseline controllers.
 
 Supports:
-- DQN/A2C training and inference modes
+- DQN/A2C/PPO training and inference modes
 - Baseline controllers (rule_based, static, random)
 - Multi-seed sweeps with per-controller summaries
 - Aggregate comparison reports (JSON + CSV)
 
 Backward compatibility:
-- --algorithms dqn a2c --train still works
+- --algorithms dqn a2c ppo --train still works
 """
 
 import argparse
@@ -32,6 +32,8 @@ SUPPORTED_CONTROLLER_MODES = [
     "dqn",
     "a2c_train",
     "a2c",
+    "ppo_train",
+    "ppo",
     "rule_based",
     "static",
     "random",
@@ -40,6 +42,7 @@ SUPPORTED_CONTROLLER_MODES = [
 DEFAULT_SWEEP_CONTROLLERS = [
     "dqn_train",
     "a2c_train",
+    "ppo_train",
     "rule_based",
     "static",
     "random",
@@ -233,6 +236,8 @@ def run_algorithm(
         controller_mode = "dqn_train" if train else "dqn"
     elif algorithm == "a2c":
         controller_mode = "a2c_train" if train else "a2c"
+    elif algorithm == "ppo":
+        controller_mode = "ppo_train" if train else "ppo"
     else:
         raise ValueError(f"Unknown algorithm: {algorithm}")
 
@@ -371,6 +376,8 @@ def _resolve_controller_modes(args: argparse.Namespace) -> List[str]:
                 resolved.append("dqn_train" if args.train else "dqn")
             elif algorithm == "a2c":
                 resolved.append("a2c_train" if args.train else "a2c")
+            elif algorithm == "ppo":
+                resolved.append("ppo_train" if args.train else "ppo")
             else:
                 raise ValueError(f"Unknown algorithm: {algorithm}")
         return resolved
@@ -401,7 +408,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--algorithms",
         nargs="+",
-        choices=["dqn", "a2c"],
+        choices=["dqn", "a2c", "ppo"],
         help="Legacy selector for DRL algorithms (mapped to controller modes)",
     )
 
@@ -443,7 +450,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--train",
         action="store_true",
-        help="Legacy flag used with --algorithms (dqn/a2c)",
+        help="Legacy flag used with --algorithms (dqn/a2c/ppo)",
     )
 
     parser.add_argument(

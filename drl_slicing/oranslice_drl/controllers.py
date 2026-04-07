@@ -5,7 +5,7 @@ import numpy as np
 
 from .config import ControllerConfig, SliceTarget
 from .types import EnvState, SliceAction
-from .drl_policy import DQNPolicy, A2CPolicy, RLPolicy
+from .drl_policy import DQNPolicy, A2CPolicy, PPOPolicy, RLPolicy
 from .drl_training import StateEncoder, ActionDecoder, DRLTrainer
 
 
@@ -311,6 +311,103 @@ class A2CController(Controller):
 
     def get_training_info(self) -> Dict:
         """Return current training metrics."""
+        if self.trainer is None:
+            return {}
+        return {
+            "step_count": self.policy.train_step_count,
+            **self.trainer.get_metrics(),
+        }
+
+    def save_checkpoint(self, path: str) -> None:
+        self.policy.save_checkpoint(path)
+
+    def load_checkpoint(self, path: str) -> None:
+        self.policy.load_checkpoint(path)
+
+
+class PPOController(Controller):
+    """DRL controller using PPO policy."""
+
+    def __init__(
+        self,
+        targets: Dict[str, SliceTarget],
+        cfg: ControllerConfig,
+        learning_rate: float = 3e-4,
+        train: bool = False,
+        device: str = "cpu",
+    ):
+        self.targets = targets
+        self.cfg = cfg
+        self.train_mode = train
+
+        self.state_encoder = StateEncoder(targets)
+        self.action_decoder = ActionDecoder(targets)
+
+        self.policy = PPOPolicy(
+            state_dim=self.state_encoder.state_dim,
+            action_dim=self.action_decoder.action_dim,
+            hidden_dim=128,
+            learning_rate=learning_rate,
+            gamma=0.99,
+            clip_epsilon=0.2,
+            value_coef=0.5,
+            entropy_coef=0.01,
+            device=device,
+        )
+
+        self.trainer = None
+        if train:
+            self.trainer = DRLTrainer(
+                self.policy,
+                self.state_encoder,
+                self.action_decoder,
+                batch_size=32,
+                update_freq=4,
+                warmup_steps=100,
+            )
+
+        self._last_state = None
+        self._last_action_idx = None
+        self._last_log_prob = None
+
+    def act(self, state: EnvState) -> List[SliceAction]:
+        state_vec = self.state_encoder.encode(state)
+        action_idx, log_prob = self.policy.select_action(state_vec, training=self.train_mode)
+        self._last_state = state
+        self._last_action_idx = int(action_idx)
+        self._last_log_prob = float(log_prob)
+
+        allocation = self.action_decoder.decode(action_idx)
+        actions: List[SliceAction] = []
+        for slice_id, alloc in allocation.items():
+            target = self.targets[slice_id]
+            actions.append(
+                SliceAction(
+                    slice_id=slice_id,
+                    min_ratio=alloc["min_ratio"],
+                    max_ratio=alloc["max_ratio"],
+                    dedicated_ratio=target.dedicated_ratio,
+                )
+            )
+        return actions
+
+    def train_step(self, reward: float, next_state: EnvState, done: bool = False) -> Dict:
+        if not self.train_mode or self.trainer is None:
+            return {}
+        if self._last_state is None or self._last_action_idx is None:
+            return {}
+
+        self.trainer.step(
+            self._last_state,
+            self._last_action_idx,
+            reward,
+            next_state,
+            done,
+            action_info=self._last_log_prob,
+        )
+        return self.trainer.get_metrics()
+
+    def get_training_info(self) -> Dict:
         if self.trainer is None:
             return {}
         return {

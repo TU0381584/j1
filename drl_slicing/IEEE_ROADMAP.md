@@ -11,6 +11,9 @@
 - Added one-command rerun launcher: `scripts/run_ieee_access_rerun.sh`
   - Default package: 10 seeds x 1000 steps across all five controllers
   - Writes outputs to `results/ieee_access_rerun/`
+- Added PPO controller mode wiring for Phase 2 progression
+  - New modes: `ppo_train`, `ppo`
+  - Integrated in orchestrator and IEEE rerun sweep package
 
 ### Quick start command
 
@@ -270,8 +273,8 @@ r_t = efficiency_bonus
 ## Current Status
 
 ✅ Phase 1 complete: Foundation infrastructure ready
-🔲 Phase 2 in-progress: Starting DRL policy implementation
+🔲 Phase 2 in-progress: PPO controller integrated, convergence and ablations pending
 🔲 Phase 3 pending: Comprehensive multi-seed sweep
 🔲 Phase 4 optional: Live testbed validation
 
-**Next immediate action**: Implement DRL policy (PPO), train on sample trace, confirm convergence by end of Week 2.
+**Next immediate action**: Run 10-seed PPO convergence sweep and compare against DQN/A2C/rule-based baselines.
