@@ -51,6 +51,14 @@ Run the IEEE comparison package:
 ./scripts/run_ieee_access_rerun.sh
 ```
 
+Run the Phase 3 live scenario matrix (5 scenarios, multi-controller, multi-seed):
+
+```bash
+./scripts/run_phase3_live_matrix.sh
+```
+
+This produces scenario summaries under `results/phase3/live_matrix/` and aggregate stats under `results/phase3/live_matrix/_stats/`.
+
 ## Optional Offline Warm-Start
 
 Phase 2 includes offline imitation warm-start for DRL policies.

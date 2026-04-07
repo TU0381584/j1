@@ -18,6 +18,10 @@
   - Run logs now include `state_vector` + `action_index` for dataset generation
   - Controllers support configurable behavior-cloning warm-start before online training
   - Added dataset utility: `scripts/build_offline_warmstart_dataset.py`
+- Added Phase 3 live evaluation matrix tooling
+  - Scenario configs: `openran_live_phase3_embb.yaml`, `openran_live_phase3_mixed_sla.yaml`, `openran_live_phase3_burst.yaml`, `openran_live_phase3_fading.yaml`, `openran_live_phase3_5slice.yaml`
+  - Runner: `scripts/run_phase3_live_matrix.sh` (5 scenarios x multi-controller x multi-seed)
+  - Stats: `scripts/phase3_stats.py` (95% CI + Welch/Permutation significance tests)
 
 ### Quick start command
 
@@ -172,6 +176,19 @@ r_t = efficiency_bonus
 - All 5 scenario types tested, ≥10 seeds each
 - No failures: ≤1% seed where DRL crashes or violates hard bounds
 
+### Phase 3 live command
+
+```bash
+cd drl_slicing
+./scripts/run_phase3_live_matrix.sh
+```
+
+Optional overrides:
+
+```bash
+HORIZON_STEPS=300 STEP_SECONDS=1 ./scripts/run_phase3_live_matrix.sh results/phase3/live_matrix 42 123 456 789 999 1001 1002 1003 1004 1005
+```
+
 ---
 
 ## Phase 4: Live Testbed Integration (Optional, Weeks 6-8)
@@ -278,7 +295,7 @@ r_t = efficiency_bonus
 
 ✅ Phase 1 complete: Foundation infrastructure ready
 ✅ Phase 2 complete: DRL policies + warm-start + stability metrics/logging integrated
-🔲 Phase 3 pending: Comprehensive multi-seed sweep
+🟡 Phase 3 in progress: Live 5-scenario matrix runner and stats pipeline ready; full sweep kickoff underway
 🔲 Phase 4 optional: Live testbed validation
 
-**Next immediate action**: Execute full Phase 3 scenario matrix (5 scenarios x controllers x 10 seeds), then generate publication figures and statistical tests.
+**Next immediate action**: Complete full Phase 3 live sweep (5 scenarios x controllers x 10 seeds) and freeze `_stats/phase3_summary.csv` + `_stats/phase3_significance.csv` for manuscript figures.

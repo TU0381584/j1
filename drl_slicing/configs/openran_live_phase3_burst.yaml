@@ -1,0 +1,50 @@
+name: openran_live_phase3_burst
+horizon_steps: 300
+random_seed: 42
+
+slices:
+  - slice_id: "1-0"
+    sst: 1
+    sd: 0
+    latency_budget_ms: 45
+    loss_budget_pct: 2.0
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+  - slice_id: "1-1"
+    sst: 1
+    sd: 1
+    latency_budget_ms: 14
+    loss_budget_pct: 0.7
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+  - slice_id: "1-2"
+    sst: 1
+    sd: 2
+    latency_budget_ms: 22
+    loss_budget_pct: 1.1
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+
+collector:
+  mode: prometheus
+  step_seconds: 1
+  csv_path: ""
+  prometheus_url: "http://127.0.0.1:9090"
+  metric_queries:
+    throughput_kbps: '(label_replace((clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.01) * 12 * (0.52 + 0.28*abs(sin(vector(time()/4))) + 0.20*abs(sin(vector(time()/17))))), "slice_id", "1-0", "__name__", ".*") or label_replace((clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.01) * 12 * (0.22 + 0.20*abs(sin(vector((time()+5)/5))) + 0.10*abs(sin(vector((time()+9)/11))))), "slice_id", "1-1", "__name__", ".*") or label_replace((clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.01) * 12 * (0.26 + 0.22*abs(sin(vector((time()+11)/6))) + 0.10*abs(sin(vector((time()+3)/13))))), "slice_id", "1-2", "__name__", ".*"))'
+    offered_load_kbps: '(label_replace((clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.01) * 12 * (0.78 + 0.40*abs(sin(vector(time()/4))) + 0.24*abs(sin(vector(time()/19))))), "slice_id", "1-0", "__name__", ".*") or label_replace((clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.01) * 12 * (0.35 + 0.26*abs(sin(vector((time()+3)/5))) + 0.12*abs(sin(vector((time()+8)/11))))), "slice_id", "1-1", "__name__", ".*") or label_replace((clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.01) * 12 * (0.42 + 0.28*abs(sin(vector((time()+7)/6))) + 0.12*abs(sin(vector((time()+15)/13))))), "slice_id", "1-2", "__name__", ".*"))'
+    latency_ms: '(label_replace((18 + 18*abs(sin(vector(time()/5))) + 6*abs(sin(vector((time()+7)/3)))), "slice_id", "1-0", "__name__", ".*") or label_replace((7 + 12*abs(sin(vector((time()+2)/5))) + 5*abs(sin(vector((time()+11)/3)))), "slice_id", "1-1", "__name__", ".*") or label_replace((11 + 14*abs(sin(vector((time()+13)/6))) + 5*abs(sin(vector((time()+29)/4)))), "slice_id", "1-2", "__name__", ".*"))'
+    loss_pct: '(label_replace((0.20 + 1.3*abs(sin(vector(time()/5))) + 0.4*abs(sin(vector((time()+7)/3)))), "slice_id", "1-0", "__name__", ".*") or label_replace((0.05 + 0.9*abs(sin(vector((time()+2)/5))) + 0.3*abs(sin(vector((time()+11)/3)))), "slice_id", "1-1", "__name__", ".*") or label_replace((0.12 + 1.1*abs(sin(vector((time()+13)/6))) + 0.3*abs(sin(vector((time()+29)/4)))), "slice_id", "1-2", "__name__", ".*"))'
+
+controller:
+  mode: dqn_train
+  alpha: 0.2
+  min_step: 2
+  max_step: 5
+
+output:
+  policy_json_path: /home/w5/ors/ORANSlice/oai_ran/rrmPolicy.json
+  run_log_csv: results/phase3/live_configs/openran_live_phase3_burst_log.csv

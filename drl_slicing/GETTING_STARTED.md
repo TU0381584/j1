@@ -90,6 +90,25 @@ PYTHONPATH=. python3 scripts/train_drl.py \
 bash scripts/stop_oran_live_100ue_xapps.sh
 ```
 
+## 9. Phase 3 live matrix
+
+Run the full Phase 3 scenario matrix (eMBB, mixed SLA, burst, fading, 5-slice):
+
+```bash
+./scripts/run_phase3_live_matrix.sh
+```
+
+Optional overrides:
+
+```bash
+HORIZON_STEPS=300 STEP_SECONDS=1 ./scripts/run_phase3_live_matrix.sh results/phase3/live_matrix 42 123 456 789 999 1001 1002 1003 1004 1005
+```
+
+Outputs:
+- Scenario-level summaries: `results/phase3/live_matrix/<scenario>/comparison_summary.csv`
+- Aggregate stats: `results/phase3/live_matrix/_stats/phase3_summary.csv`
+- Significance tests: `results/phase3/live_matrix/_stats/phase3_significance.csv`
+
 ## Live-only enforcement
 
 The runner enforces all of the following:
