@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Generate a UERANSIM UE fleet docker-compose file and profile CSV.
+Generate a UE fleet docker-compose file and profile CSV.
 
 The generated compose file is intended to be used with docker_open5gs and creates
-one NR-UE container per UE with unique IMSI/IMEI identities.
+one NR-UE container per UE with unique IMSI/IMEI identities. It supports both
+UERANSIM and native OAI NR-UE stacks.
 """
 
 import argparse
@@ -55,7 +56,7 @@ def _profile_to_slice(profile: str, ue_index: int) -> Tuple[str, str, str]:
     return sst, "000002", "1-2"
 
 
-def _write_compose(
+def _write_ueransim_compose(
     compose_path: Path,
     ue_count: int,
     profiles: List[str],
@@ -155,6 +156,132 @@ def _write_compose(
     return records
 
 
+def _write_oai_compose(
+    compose_path: Path,
+    ue_count: int,
+    profiles: List[str],
+    imsi_base: str,
+    imei_base: str,
+    imeisv_base: str,
+    ki: str,
+    op: str,
+    amf: str,
+    gnb_ip_override: str,
+    oai_ue_image: str,
+    oai_launch_mode: str,
+) -> List[dict]:
+    records = []
+
+    lines: List[str] = []
+    lines.append("version: '3'")
+    lines.append("services:")
+
+    for i in range(1, ue_count + 1):
+        idx = f"{i:03d}"
+        service_name = f"nr_ue_{idx}"
+        component_name = f"oai-ue-{idx}"
+        imsi = _build_numeric_id(imsi_base, i)
+        imei = _build_numeric_id(imei_base, i)
+        imeisv = _build_numeric_id(imeisv_base, i)
+        profile = profiles[i - 1]
+        sst, sd, slice_id = _profile_to_slice(profile, i)
+
+        records.append(
+            {
+                "service_name": service_name,
+                "container_name": service_name,
+                "component_name": component_name,
+                "imsi": imsi,
+                "imei": imei,
+                "imeisv": imeisv,
+                "ki": ki,
+                "op": op,
+                "amf": amf,
+                "profile": profile,
+                "sst": sst,
+                "sd": sd,
+                "slice_id": slice_id,
+            }
+        )
+
+        extra_options = (
+            f"--sa --rfsim -r 106 --numerology 1 --band 78 -C 3619200000 "
+            f"--uicc0.imsi {imsi} --uicc0.nssai_sd {sd} --uicc0.dnn internet --uicc0.nssai_sst {sst} "
+            f"--rfsimulator.serveraddr {gnb_ip_override} --log_config.global_log_options level,nocolor,time"
+        )
+
+        if oai_launch_mode == "local-build":
+            launch_cmd = (
+                "cd /openairinterface5g && . ./oaienv && cd cmake_targets/ran_build/build && "
+                f"./nr-uesoftmodem -O /tmp/nr-ue.conf {extra_options}"
+            )
+            lines.extend(
+                [
+                    f"  {service_name}:",
+                    f"    image: {oai_ue_image}",
+                    f"    container_name: {service_name}",
+                    "    entrypoint: /bin/bash",
+                    "    command:",
+                    "      - -lc",
+                    f"      - \"{launch_cmd}\"",
+                    "    stdin_open: true",
+                    "    tty: true",
+                    "    cap_add:",
+                    "      - NET_ADMIN",
+                    "      - NET_RAW",
+                    "      - SYS_NICE",
+                    "      - IPC_LOCK",
+                    "    devices:",
+                    "      - /dev/net/tun:/dev/net/tun",
+                    "    volumes:",
+                    "      - ../oai/nrue.uicc.conf:/tmp/nr-ue.conf:ro",
+                    "      - /etc/timezone:/etc/timezone:ro",
+                    "      - /etc/localtime:/etc/localtime:ro",
+                    "    networks:",
+                    "      default: {}",
+                ]
+            )
+        else:
+            env_options = f"-E {extra_options}"
+            lines.extend(
+                [
+                    f"  {service_name}:",
+                    f"    image: {oai_ue_image}",
+                    f"    container_name: {service_name}",
+                    "    stdin_open: true",
+                    "    tty: true",
+                    "    cap_add:",
+                    "      - NET_ADMIN",
+                    "      - NET_RAW",
+                    "      - SYS_NICE",
+                    "      - IPC_LOCK",
+                    "    devices:",
+                    "      - /dev/net/tun:/dev/net/tun",
+                    "    volumes:",
+                    "      - ../oai/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf",
+                    "      - /etc/timezone:/etc/timezone:ro",
+                    "      - /etc/localtime:/etc/localtime:ro",
+                    "    environment:",
+                    f"      - USE_ADDITIONAL_OPTIONS={env_options}",
+                    "    networks:",
+                    "      default: {}",
+                ]
+            )
+
+    lines.extend(
+        [
+            "networks:",
+            "  default:",
+            "    external:",
+            "      name: docker_open5gs_default",
+        ]
+    )
+
+    compose_path.parent.mkdir(parents=True, exist_ok=True)
+    compose_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return records
+
+
 def _write_profiles_csv(csv_path: Path, records: List[dict]) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
@@ -180,6 +307,53 @@ def _write_profiles_csv(csv_path: Path, records: List[dict]) -> None:
         writer.writerows(records)
 
 
+def _write_compose(
+    compose_path: Path,
+    ue_count: int,
+    profiles: List[str],
+    imsi_base: str,
+    imei_base: str,
+    imeisv_base: str,
+    ki: str,
+    op: str,
+    amf: str,
+    gnb_ip_override: str,
+    ue_stack: str,
+    oai_ue_image: str,
+    oai_launch_mode: str,
+) -> List[dict]:
+    if ue_stack == "ueransim":
+        return _write_ueransim_compose(
+            compose_path=compose_path,
+            ue_count=ue_count,
+            profiles=profiles,
+            imsi_base=imsi_base,
+            imei_base=imei_base,
+            imeisv_base=imeisv_base,
+            ki=ki,
+            op=op,
+            amf=amf,
+            gnb_ip_override=gnb_ip_override,
+        )
+    if ue_stack == "oai":
+        return _write_oai_compose(
+            compose_path=compose_path,
+            ue_count=ue_count,
+            profiles=profiles,
+            imsi_base=imsi_base,
+            imei_base=imei_base,
+            imeisv_base=imeisv_base,
+            ki=ki,
+            op=op,
+            amf=amf,
+            gnb_ip_override=gnb_ip_override,
+            oai_ue_image=oai_ue_image,
+            oai_launch_mode=oai_launch_mode,
+        )
+
+    raise ValueError(f"Unsupported UE stack: {ue_stack}")
+
+
 def parse_args() -> argparse.Namespace:
     default_compose, default_profiles = _default_paths()
 
@@ -202,6 +376,18 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument("--output-compose", default=str(default_compose), help="Output docker-compose path")
+    parser.add_argument("--ue-stack", choices=["ueransim", "oai"], default="ueransim", help="Type of UE containers to generate")
+    parser.add_argument(
+        "--oai-ue-image",
+        default="oaisoftwarealliance/oai-nr-ue:develop",
+        help="OAI UE container image (used when --ue-stack oai)",
+    )
+    parser.add_argument(
+        "--oai-launch-mode",
+        choices=["env", "local-build"],
+        default="env",
+        help="OAI UE launch mode: env (USE_ADDITIONAL_OPTIONS) or local-build (nr-uesoftmodem from source tree)",
+    )
     parser.add_argument("--output-profiles", default=str(default_profiles), help="Output profiles CSV path")
     return parser.parse_args()
 
@@ -229,6 +415,9 @@ def main() -> int:
         op=args.op,
         amf=args.amf,
         gnb_ip_override=args.gnb_ip_override,
+        ue_stack=args.ue_stack,
+        oai_ue_image=args.oai_ue_image,
+        oai_launch_mode=args.oai_launch_mode,
     )
     _write_profiles_csv(csv_path, records)
 

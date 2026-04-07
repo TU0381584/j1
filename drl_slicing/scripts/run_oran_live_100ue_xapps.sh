@@ -15,6 +15,11 @@ UE_STACK="ueransim"
 TRAFFIC_TARGET_IP="12.1.1.1"
 CORE_CONTAINER="amf"
 DRY_RUN=0
+FORCE_HIGH_LOAD=0
+OAI_UE_IMAGE="oaisoftwarealliance/oai-nr-ue:develop"
+OAI_LAUNCH_MODE="env"
+OAI_UE_IMAGE_SET=0
+OAI_LAUNCH_MODE_SET=0
 
 LIVE_CONFIG="$DRL_DIR/configs/openran_live_prom_true_100ue_randomized.yaml"
 UE_COMPOSE_FILE="$GEN_DIR/nr-ue-fleet.yaml"
@@ -54,6 +59,16 @@ while [[ $# -gt 0 ]]; do
       CORE_CONTAINER="$2"
       shift 2
       ;;
+    --oai-ue-image)
+      OAI_UE_IMAGE="$2"
+      OAI_UE_IMAGE_SET=1
+      shift 2
+      ;;
+    --oai-launch-mode)
+      OAI_LAUNCH_MODE="$2"
+      OAI_LAUNCH_MODE_SET=1
+      shift 2
+      ;;
     --config)
       LIVE_CONFIG="$2"
       shift 2
@@ -62,9 +77,13 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=1
       shift
       ;;
+    --force-high-load)
+      FORCE_HIGH_LOAD=1
+      shift
+      ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--ue-count N] [--embb-ratio R] [--random-seed S] [--active-algo dqn|a2c] [--gnb-mode ueransim|oai] [--ue-stack ueransim|external] [--traffic-target-ip IP] [--core-container NAME] [--config PATH] [--dry-run]"
+      echo "Usage: $0 [--ue-count N] [--embb-ratio R] [--random-seed S] [--active-algo dqn|a2c] [--gnb-mode ueransim|oai] [--ue-stack ueransim|oai|external] [--traffic-target-ip IP] [--core-container NAME] [--oai-ue-image IMAGE] [--oai-launch-mode env|local-build] [--config PATH] [--dry-run] [--force-high-load]"
       exit 2
       ;;
   esac
@@ -75,13 +94,28 @@ if [[ "$ACTIVE_ALGO" != "dqn" && "$ACTIVE_ALGO" != "a2c" ]]; then
   exit 2
 fi
 
+if ! [[ "$UE_COUNT" =~ ^[0-9]+$ ]] || (( UE_COUNT <= 0 )); then
+  echo "--ue-count must be a positive integer"
+  exit 2
+fi
+
 if [[ "$GNB_MODE" != "ueransim" && "$GNB_MODE" != "oai" ]]; then
   echo "--gnb-mode must be ueransim or oai"
   exit 2
 fi
 
-if [[ "$UE_STACK" != "ueransim" && "$UE_STACK" != "external" ]]; then
-  echo "--ue-stack must be ueransim or external"
+if [[ "$UE_STACK" != "ueransim" && "$UE_STACK" != "oai" && "$UE_STACK" != "external" ]]; then
+  echo "--ue-stack must be ueransim, oai, or external"
+  exit 2
+fi
+
+if [[ "$UE_STACK" == "oai" && "$GNB_MODE" != "oai" ]]; then
+  echo "--ue-stack oai is only supported with --gnb-mode oai"
+  exit 2
+fi
+
+if [[ "$OAI_LAUNCH_MODE" != "env" && "$OAI_LAUNCH_MODE" != "local-build" ]]; then
+  echo "--oai-launch-mode must be env or local-build"
   exit 2
 fi
 
@@ -98,6 +132,79 @@ else
   ACTIVE_POLICY_PATH="$ROOT_DIR/oai_ran/rrmPolicy.json"
   GNB_IP_OVERRIDE=""
 fi
+
+if [[ "$UE_STACK" == "oai" ]]; then
+  if [[ "$OAI_LAUNCH_MODE_SET" -eq 0 && "$OAI_UE_IMAGE_SET" -eq 1 && "$OAI_UE_IMAGE" == "docker_oai_nrue:local" ]]; then
+    OAI_LAUNCH_MODE="local-build"
+  fi
+
+  if [[ "$OAI_UE_IMAGE_SET" -eq 0 && "$OAI_LAUNCH_MODE_SET" -eq 1 && "$OAI_LAUNCH_MODE" == "local-build" ]]; then
+    OAI_UE_IMAGE="docker_oai_nrue:local"
+  fi
+
+  if [[ "$OAI_UE_IMAGE_SET" -eq 0 && "$OAI_LAUNCH_MODE_SET" -eq 0 ]]; then
+    if docker image inspect docker_oai_nrue:local >/dev/null 2>&1; then
+      OAI_UE_IMAGE="docker_oai_nrue:local"
+      OAI_LAUNCH_MODE="local-build"
+    fi
+  fi
+
+  if [[ "$OAI_LAUNCH_MODE" == "local-build" ]] && [[ "$DRY_RUN" -eq 0 ]]; then
+    if ! docker image inspect "$OAI_UE_IMAGE" >/dev/null 2>&1; then
+      echo "OAI UE image not found locally: $OAI_UE_IMAGE"
+      echo "Either build/import the image, or use --oai-launch-mode env --oai-ue-image oaisoftwarealliance/oai-nr-ue:develop"
+      exit 2
+    fi
+  fi
+
+  UE_COMPOSE_FILE="$GEN_DIR/nr-ue-oai-fleet.yaml"
+else
+  UE_COMPOSE_FILE="$GEN_DIR/nr-ue-fleet.yaml"
+fi
+
+enforce_memory_safety() {
+  local available_mb
+  local per_ue_mb=90
+  local base_mb=1200
+
+  if [[ "$UE_STACK" == "external" ]]; then
+    return
+  fi
+
+  if [[ "$UE_STACK" == "oai" ]]; then
+    per_ue_mb=420
+    base_mb=1800
+  fi
+
+  available_mb="$(awk '/MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || true)"
+  if [[ -z "$available_mb" ]]; then
+    echo "Skipping memory safety check (MemAvailable not detected)."
+    return
+  fi
+
+  local safe_max=$(( (available_mb - base_mb) / per_ue_mb ))
+  if (( safe_max < 1 )); then
+    safe_max=1
+  fi
+
+  local estimated_mb=$(( base_mb + UE_COUNT * per_ue_mb ))
+
+  echo "Memory preflight"
+  echo "  Available RAM    : ${available_mb} MiB"
+  echo "  Estimated demand : ${estimated_mb} MiB (base=${base_mb} + per_ue=${per_ue_mb})"
+  echo "  Safe UE ceiling  : ${safe_max}"
+
+  if (( UE_COUNT > safe_max )); then
+    if [[ "$FORCE_HIGH_LOAD" -eq 1 ]]; then
+      echo "WARNING: forcing UE_COUNT=$UE_COUNT above safe ceiling=$safe_max"
+    else
+      echo "Adjusting UE_COUNT from $UE_COUNT to $safe_max to avoid OOM"
+      UE_COUNT="$safe_max"
+    fi
+  fi
+}
+
+enforce_memory_safety
 
 run_cmd() {
   local cmd="$1"
@@ -170,16 +277,23 @@ echo "  Random seed      : $RANDOM_SEED"
 echo "  Active controller: $ACTIVE_ALGO"
 echo "  gNB mode         : $GNB_MODE"
 echo "  UE stack         : $UE_STACK"
+if [[ "$UE_STACK" == "oai" ]]; then
+  echo "  OAI UE image     : $OAI_UE_IMAGE"
+  echo "  OAI launch mode  : $OAI_LAUNCH_MODE"
+fi
 if [[ -n "$GNB_IP_OVERRIDE" ]]; then
   echo "  UE gNB override  : $GNB_IP_OVERRIDE"
 fi
 echo "  Config           : $LIVE_CONFIG"
 
 echo "[1/10] Generate 100-UE fleet compose + profiles"
-if [[ "$UE_STACK" == "ueransim" ]]; then
-  GEN_CMD="cd '$DRL_DIR' && /usr/bin/python3 scripts/generate_ue_fleet_compose.py --ue-count '$UE_COUNT' --embb-ratio '$EMBB_RATIO' --random-seed '$RANDOM_SEED' --output-compose '$UE_COMPOSE_FILE' --output-profiles '$UE_PROFILE_CSV'"
+if [[ "$UE_STACK" == "ueransim" || "$UE_STACK" == "oai" ]]; then
+  GEN_CMD="cd '$DRL_DIR' && /usr/bin/python3 scripts/generate_ue_fleet_compose.py --ue-count '$UE_COUNT' --embb-ratio '$EMBB_RATIO' --random-seed '$RANDOM_SEED' --output-compose '$UE_COMPOSE_FILE' --output-profiles '$UE_PROFILE_CSV' --ue-stack '$UE_STACK'"
   if [[ -n "$GNB_IP_OVERRIDE" ]]; then
     GEN_CMD+=" --gnb-ip-override '$GNB_IP_OVERRIDE'"
+  fi
+  if [[ "$UE_STACK" == "oai" ]]; then
+    GEN_CMD+=" --oai-ue-image '$OAI_UE_IMAGE' --oai-launch-mode '$OAI_LAUNCH_MODE'"
   fi
   run_cmd "$GEN_CMD"
 else
@@ -194,22 +308,22 @@ seed_active_policy
 run_cmd "cd '$DOCKER_DIR' && docker compose -f '$GNB_COMPOSE_FILE' up -d"
 
 echo "[4/10] Provision UE subscribers"
-if [[ "$UE_STACK" == "ueransim" ]]; then
+if [[ "$UE_STACK" == "ueransim" || "$UE_STACK" == "oai" ]]; then
   run_cmd "cd '$DRL_DIR' && bash scripts/provision_open5gs_subscribers.sh --profiles '$UE_PROFILE_CSV' --core-container '$CORE_CONTAINER'"
 else
   echo "Skipping subscriber reprovision (expected external/OAI UE provisioning flow)"
 fi
 
 echo "[5/10] Start UE fleet containers"
-if [[ "$UE_STACK" == "ueransim" ]]; then
+if [[ "$UE_STACK" == "ueransim" || "$UE_STACK" == "oai" ]]; then
   cleanup_stale_ue_containers
   run_cmd "cd '$DOCKER_DIR' && docker compose -f '$UE_COMPOSE_FILE' up -d"
 else
-  echo "Skipping UERANSIM UE fleet startup (UE stack is external)"
+  echo "Skipping UE fleet startup (UE stack is external)"
 fi
 
 echo "[6/10] Start randomized eMBB/URLLC traffic loops"
-if [[ "$UE_STACK" == "ueransim" ]]; then
+if [[ "$UE_STACK" == "ueransim" || "$UE_STACK" == "oai" ]]; then
   run_cmd "cd '$DRL_DIR' && bash scripts/start_ue_traffic_profiles.sh --profiles '$UE_PROFILE_CSV' --target-ip '$TRAFFIC_TARGET_IP'"
 else
   echo "Skipping container traffic loops (expected external/OAI UE traffic)"
