@@ -1,0 +1,308 @@
+name: openran_live_prom_strict_3ue_congestion_600step
+horizon_steps: 600
+random_seed: 42
+
+slices:
+  - slice_id: "1-0"
+    sst: 1
+    sd: 0
+    latency_budget_ms: 45
+    loss_budget_pct: 2.0
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+
+  - slice_id: "1-1"
+    sst: 1
+    sd: 1
+    latency_budget_ms: 15
+    loss_budget_pct: 0.8
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+
+  - slice_id: "1-2"
+    sst: 1
+    sd: 2
+    latency_budget_ms: 65
+    loss_budget_pct: 3.5
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+
+collector:
+  mode: prometheus
+  step_seconds: 1
+  csv_path: ""
+  prometheus_url: "http://127.0.0.1:9090"
+  strict_live_queries: true
+  enable_action_feedback: true
+  action_feedback_gain: 0.65
+  metric_queries:
+    throughput_kbps: >-
+      (
+        label_replace(
+          (
+            clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.001) * 12
+            * (
+              clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000000"}), 0.01)
+              / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+            )
+          ),
+          "slice_id", "1-0", "__name__", ".*"
+        )
+        or label_replace(
+          (
+            clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.001) * 12
+            * (
+              clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000001"}), 0.01)
+              / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+            )
+          ),
+          "slice_id", "1-1", "__name__", ".*"
+        )
+        or label_replace(
+          (
+            clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.001) * 12
+            * (
+              clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000002"}), 0.01)
+              / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+            )
+          ),
+          "slice_id", "1-2", "__name__", ".*"
+        )
+      )
+
+    offered_load_kbps: >-
+      (
+        label_replace(
+          (
+            clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.001) * 12
+            * (
+              clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000000"}), 0.01)
+              / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+            )
+          ),
+          "slice_id", "1-0", "__name__", ".*"
+        )
+        or label_replace(
+          (
+            clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.001) * 12
+            * (
+              clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000001"}), 0.01)
+              / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+            )
+          ),
+          "slice_id", "1-1", "__name__", ".*"
+        )
+        or label_replace(
+          (
+            clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.001) * 12
+            * (
+              clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000002"}), 0.01)
+              / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+            )
+          ),
+          "slice_id", "1-2", "__name__", ".*"
+        )
+      )
+
+    latency_ms: >-
+      (
+        label_replace(
+          (
+            12
+            + 50 * clamp_min(
+              (
+                (
+                  (clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.001) * 12)
+                  * (
+                    clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000000"}), 0.01)
+                    / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                  )
+                )
+                / clamp_min(
+                  (
+                    (clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.001) * 12)
+                    * (
+                      clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000000"}), 0.01)
+                      / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                    )
+                  ),
+                  0.01
+                )
+              ) - 1,
+              4
+            )
+          ),
+          "slice_id", "1-0", "__name__", ".*"
+        )
+        or label_replace(
+          (
+            5
+            + 30 * clamp_min(
+              (
+                (
+                  (clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.001) * 12)
+                  * (
+                    clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000001"}), 0.01)
+                    / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                  )
+                )
+                / clamp_min(
+                  (
+                    (clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.001) * 12)
+                    * (
+                      clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000001"}), 0.01)
+                      / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                    )
+                  ),
+                  0.01
+                )
+              ) - 1,
+              4
+            )
+          ),
+          "slice_id", "1-1", "__name__", ".*"
+        )
+        or label_replace(
+          (
+            20
+            + 35 * clamp_min(
+              (
+                (
+                  (clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.001) * 12)
+                  * (
+                    clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000002"}), 0.01)
+                    / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                  )
+                )
+                / clamp_min(
+                  (
+                    (clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.001) * 12)
+                    * (
+                      clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000002"}), 0.01)
+                      / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                    )
+                  ),
+                  0.01
+                )
+              ) - 1,
+              4
+            )
+          ),
+          "slice_id", "1-2", "__name__", ".*"
+        )
+      )
+
+    loss_pct: >-
+      (
+        label_replace(
+          (
+            0.10
+            + 1.90 * clamp_min(
+              (
+                (
+                  (clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.001) * 12)
+                  * (
+                    clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000000"}), 0.01)
+                    / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                  )
+                )
+                / clamp_min(
+                  (
+                    (clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.001) * 12)
+                    * (
+                      clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000000"}), 0.01)
+                      / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                    )
+                  ),
+                  0.01
+                )
+              ) - 1,
+              4
+            )
+          ),
+          "slice_id", "1-0", "__name__", ".*"
+        )
+        or label_replace(
+          (
+            0.03
+            + 0.90 * clamp_min(
+              (
+                (
+                  (clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.001) * 12)
+                  * (
+                    clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000001"}), 0.01)
+                    / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                  )
+                )
+                / clamp_min(
+                  (
+                    (clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.001) * 12)
+                    * (
+                      clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000001"}), 0.01)
+                      / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                    )
+                  ),
+                  0.01
+                )
+              ) - 1,
+              4
+            )
+          ),
+          "slice_id", "1-1", "__name__", ".*"
+        )
+        or label_replace(
+          (
+            0.15
+            + 1.50 * clamp_min(
+              (
+                (
+                  (clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.001) * 12)
+                  * (
+                    clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000002"}), 0.01)
+                    / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                  )
+                )
+                / clamp_min(
+                  (
+                    (clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.001) * 12)
+                    * (
+                      clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr{snssai="1-000002"}), 0.01)
+                      / clamp_min(sum(fivegs_smffunction_sm_qos_flow_nbr), 0.01)
+                    )
+                  ),
+                  0.01
+                )
+              ) - 1,
+              4
+            )
+          ),
+          "slice_id", "1-2", "__name__", ".*"
+        )
+      )
+
+controller:
+  mode: dqn
+  alpha: 0.2
+  min_step: 2
+  max_step: 5
+  checkpoint_path: ""
+  require_checkpoint: true
+
+live_congestion:
+  enabled: true
+  shock_start_step: 200
+  shock_interval_steps: 200
+  shock_duration_steps: 20
+  drop_ratio: 0.99
+  container: "oaignb"
+  interface: "eth0"
+  baseline_rate_mbit: 1000
+  burst_kbit: 64
+  latency_ms: 50
+
+output:
+  policy_json_path: /home/w5/ors/ORANSlice/oai_ran/rrmPolicy.json
+  run_log_csv: results/openran_live_prom_strict_3ue_congestion_600step_log.csv

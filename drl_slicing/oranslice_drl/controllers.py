@@ -84,6 +84,72 @@ class RuleBasedSLAController(Controller):
         return actions
 
 
+class ThresholdHeuristicController(Controller):
+    """
+    Baseline threshold controller that is intentionally not SLA-aware.
+
+    It only reacts to served-demand ratio (throughput/offered_load),
+    then redistributes min/max ratios using persistent per-slice scores.
+    """
+
+    def __init__(self, targets: Dict[str, SliceTarget], cfg: ControllerConfig) -> None:
+        self.targets = targets
+        self.cfg = cfg
+        self.low_ratio = 0.80
+        self.high_ratio = 0.97
+        self.increase_gain = 0.35
+        self.decrease_gain = 0.20
+        self.scores: Dict[str, float] = {slice_id: 1.0 for slice_id in targets.keys()}
+
+    def _update_score(self, slice_id: str, served_ratio: float) -> None:
+        score = self.scores[slice_id]
+
+        if served_ratio < self.low_ratio:
+            score += self.increase_gain * (self.low_ratio - served_ratio + 0.2)
+        elif served_ratio > self.high_ratio:
+            score -= self.decrease_gain * (served_ratio - self.high_ratio + 0.2)
+        else:
+            score *= 0.995
+
+        self.scores[slice_id] = float(np.clip(score, 0.2, 5.0))
+
+    def act(self, state: EnvState) -> List[SliceAction]:
+        for slice_id, metrics in state.slices.items():
+            offered = max(metrics.offered_load_kbps, 1.0)
+            served_ratio = float(np.clip(metrics.throughput_kbps / offered, 0.0, 1.25))
+            self._update_score(slice_id, served_ratio)
+
+        total_score = sum(self.scores.values())
+        if total_score <= 0.0:
+            total_score = float(max(len(self.scores), 1))
+
+        actions: List[SliceAction] = []
+        for slice_id, target in self.targets.items():
+            share = self.scores[slice_id] / total_score
+
+            min_lo, min_hi = target.min_ratio_bounds
+            max_lo, max_hi = target.max_ratio_bounds
+
+            next_min = int(round(min_lo + share * (min_hi - min_lo)))
+            next_max = int(round(max_lo + share * (max_hi - max_lo)))
+
+            next_min = max(min_lo, min(min_hi, next_min))
+            next_max = max(max_lo, min(max_hi, next_max))
+            if next_min > next_max:
+                next_max = next_min
+
+            actions.append(
+                SliceAction(
+                    slice_id=slice_id,
+                    min_ratio=next_min,
+                    max_ratio=next_max,
+                    dedicated_ratio=target.dedicated_ratio,
+                )
+            )
+
+        return actions
+
+
 class RandomController(Controller):
     def __init__(self, targets: Dict[str, SliceTarget], seed: int) -> None:
         self.targets = targets

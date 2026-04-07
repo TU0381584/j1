@@ -4,7 +4,7 @@ DRL experiment orchestrator for DRL and baseline controllers.
 
 Supports:
 - DQN/A2C/PPO training and inference modes
-- Baseline controllers (rule_based, static, random)
+- Baseline controllers (rule_based, static, random, threshold_heuristic)
 - Multi-seed sweeps with per-controller summaries
 - Aggregate comparison reports (JSON + CSV)
 
@@ -37,6 +37,7 @@ SUPPORTED_CONTROLLER_MODES = [
     "rule_based",
     "static",
     "random",
+    "threshold_heuristic",
 ]
 
 DEFAULT_SWEEP_CONTROLLERS = [
@@ -46,7 +47,10 @@ DEFAULT_SWEEP_CONTROLLERS = [
     "rule_based",
     "static",
     "random",
+    "threshold_heuristic",
 ]
+
+INFERENCE_CONTROLLER_MODES = {"dqn", "a2c", "ppo"}
 
 
 def _parse_controller_config_overrides(raw_items: Optional[List[str]]) -> Dict[str, str]:
@@ -68,6 +72,29 @@ def _parse_controller_config_overrides(raw_items: Optional[List[str]]) -> Dict[s
         if not path:
             raise ValueError(f"Missing config path for controller mode: {mode}")
         overrides[mode] = path
+
+    return overrides
+
+
+def _parse_controller_checkpoint_overrides(raw_items: Optional[List[str]]) -> Dict[str, str]:
+    overrides: Dict[str, str] = {}
+    if not raw_items:
+        return overrides
+
+    for item in raw_items:
+        if "=" not in item:
+            raise ValueError(
+                f"Invalid --controller-checkpoint value '{item}'. "
+                "Expected format: <controller_mode>=<checkpoint_path>"
+            )
+        mode, checkpoint_path = item.split("=", 1)
+        mode = mode.strip()
+        checkpoint_path = checkpoint_path.strip()
+        if mode not in SUPPORTED_CONTROLLER_MODES:
+            raise ValueError(f"Unknown controller mode in --controller-checkpoint: {mode}")
+        if not checkpoint_path:
+            raise ValueError(f"Missing checkpoint path for controller mode: {mode}")
+        overrides[mode] = checkpoint_path
 
     return overrides
 
@@ -123,6 +150,8 @@ def run_controller(
     warm_start_epochs: Optional[int] = None,
     warm_start_batch_size: Optional[int] = None,
     warm_start_max_samples: Optional[int] = None,
+    checkpoint_overrides: Optional[Dict[str, str]] = None,
+    require_inference_checkpoints: bool = False,
 ) -> Dict:
     """
     Run one controller mode across multiple seeds.
@@ -140,6 +169,8 @@ def run_controller(
         warm_start_epochs: optional warm-start epochs override
         warm_start_batch_size: optional warm-start batch-size override
         warm_start_max_samples: optional sample cap for warm-start dataset
+        checkpoint_overrides: optional mapping controller_mode->checkpoint_path
+        require_inference_checkpoints: require checkpoints for dqn/a2c/ppo inference modes
 
     Returns:
         summary stats for the controller
@@ -183,6 +214,17 @@ def run_controller(
             config.controller.warm_start_batch_size = warm_start_batch_size
         if warm_start_max_samples is not None:
             config.controller.warm_start_max_samples = warm_start_max_samples
+
+        if checkpoint_overrides and controller_mode in checkpoint_overrides:
+            config.controller.checkpoint_path = checkpoint_overrides[controller_mode]
+
+        if require_inference_checkpoints and controller_mode in INFERENCE_CONTROLLER_MODES:
+            config.controller.require_checkpoint = True
+            if not config.controller.checkpoint_path.strip():
+                raise ValueError(
+                    "Inference checkpoint required but none provided for controller mode "
+                    f"'{controller_mode}'. Use --controller-checkpoint {controller_mode}=<path>."
+                )
 
         config.name = f"{config.name}_{controller_mode}"
         config.output.policy_json_path = str(run_dir / "rrmPolicy.json")
@@ -256,6 +298,8 @@ def run_algorithm(
     warm_start_epochs: Optional[int] = None,
     warm_start_batch_size: Optional[int] = None,
     warm_start_max_samples: Optional[int] = None,
+    checkpoint_overrides: Optional[Dict[str, str]] = None,
+    require_inference_checkpoints: bool = False,
 ) -> Dict:
     """Backward-compatible wrapper for legacy algorithm-based invocation."""
     if algorithm == "dqn":
@@ -280,6 +324,8 @@ def run_algorithm(
         warm_start_epochs=warm_start_epochs,
         warm_start_batch_size=warm_start_batch_size,
         warm_start_max_samples=warm_start_max_samples,
+        checkpoint_overrides=checkpoint_overrides,
+        require_inference_checkpoints=require_inference_checkpoints,
     )
 
 
@@ -451,6 +497,19 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--controller-checkpoint",
+        action="append",
+        default=[],
+        help="Optional per-controller checkpoint override: <mode>=<checkpoint_path>",
+    )
+
+    parser.add_argument(
+        "--require-inference-checkpoints",
+        action="store_true",
+        help="Require checkpoints for inference controllers (dqn/a2c/ppo)",
+    )
+
+    parser.add_argument(
         "--seeds",
         nargs="+",
         type=int,
@@ -548,6 +607,7 @@ def main() -> int:
         return 2
 
     controller_overrides = _parse_controller_config_overrides(args.controller_config)
+    checkpoint_overrides = _parse_controller_checkpoint_overrides(args.controller_checkpoint)
 
     did_run = False
     resolved_controllers: List[str] = []
@@ -578,6 +638,8 @@ def main() -> int:
                 warm_start_epochs=args.warm_start_epochs,
                 warm_start_batch_size=args.warm_start_batch_size,
                 warm_start_max_samples=args.warm_start_max_samples,
+                checkpoint_overrides=checkpoint_overrides,
+                require_inference_checkpoints=args.require_inference_checkpoints,
             )
         did_run = True
 

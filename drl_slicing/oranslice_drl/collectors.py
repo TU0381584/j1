@@ -60,11 +60,25 @@ class CsvReplayCollector(MetricsCollector):
 
 
 class PrometheusCollector(MetricsCollector):
-    def __init__(self, base_url: str, metric_queries: Dict[str, str], known_slice_ids: List[str], step_seconds: int) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        metric_queries: Dict[str, str],
+        known_slice_ids: List[str],
+        step_seconds: int,
+        enable_action_feedback: bool = False,
+        action_feedback_gain: float = 0.35,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.metric_queries = metric_queries
         self.known_slice_ids = known_slice_ids
         self.step_seconds = step_seconds
+        self.enable_action_feedback = enable_action_feedback
+        self.action_feedback_gain = max(0.0, float(action_feedback_gain))
+        self.last_actions: Dict[str, SliceAction] = {}
+
+    def on_action(self, actions: List[SliceAction], targets: Dict[str, SliceTarget], step: int) -> None:
+        self.last_actions = {action.slice_id: action for action in actions}
 
     def _query(self, query: str) -> Dict[str, float]:
         encoded = urllib.parse.urlencode({"query": query})
@@ -83,11 +97,69 @@ class PrometheusCollector(MetricsCollector):
             out[slice_id] = value
         return out
 
+    @staticmethod
+    def _render_query(query: str, step: int) -> str:
+        # Allow configs to inject step-indexed behavior (for deterministic scenarios)
+        # without requiring Prometheus wall-clock alignment.
+        return query.replace("__STEP__", str(step))
+
+    def _normalized_shares(self) -> Dict[str, float]:
+        if not self.last_actions:
+            equal = 1.0 / max(len(self.known_slice_ids), 1)
+            return {slice_id: equal for slice_id in self.known_slice_ids}
+
+        raw_shares: Dict[str, float] = {}
+        for slice_id in self.known_slice_ids:
+            action = self.last_actions.get(slice_id)
+            if action is None:
+                raw_shares[slice_id] = 1.0
+                continue
+            raw_shares[slice_id] = max(0.01, (action.min_ratio + action.max_ratio) / 200.0)
+
+        total = sum(raw_shares.values())
+        if total <= 0.0:
+            equal = 1.0 / max(len(self.known_slice_ids), 1)
+            return {slice_id: equal for slice_id in self.known_slice_ids}
+
+        return {slice_id: raw_shares[slice_id] / total for slice_id in self.known_slice_ids}
+
+    def _apply_action_feedback(self, state: EnvState) -> None:
+        if not self.enable_action_feedback:
+            return
+        if not self.last_actions:
+            return
+
+        shares = self._normalized_shares()
+        baseline_share = 1.0 / max(len(self.known_slice_ids), 1)
+
+        for slice_id in self.known_slice_ids:
+            metrics = state.slices[slice_id]
+            relative_share = shares[slice_id] / max(baseline_share, 1e-6)
+            bias = 1.0 + self.action_feedback_gain * (relative_share - 1.0)
+            bias = max(0.35, min(2.2, bias))
+
+            throughput = max(0.0, metrics.throughput_kbps * bias)
+            metrics.throughput_kbps = float(min(metrics.offered_load_kbps, throughput))
+
+            latency_scale = max(0.25, min(3.0, 1.0 / max(bias, 1e-6)))
+            loss_scale = max(0.2, min(4.0, 1.0 / max(0.8 * bias + 0.2, 1e-6)))
+
+            metrics.latency_ms = float(max(0.1, metrics.latency_ms * latency_scale))
+            metrics.loss_pct = float(max(0.0, metrics.loss_pct * loss_scale))
+
     def get_state(self, step: int) -> EnvState:
-        throughput_map = self._query(self.metric_queries["throughput_kbps"])
-        latency_map = self._query(self.metric_queries["latency_ms"])
-        loss_map = self._query(self.metric_queries["loss_pct"])
-        offered_map = self._query(self.metric_queries.get("offered_load_kbps", self.metric_queries["throughput_kbps"]))
+        throughput_query = self._render_query(self.metric_queries["throughput_kbps"], step)
+        latency_query = self._render_query(self.metric_queries["latency_ms"], step)
+        loss_query = self._render_query(self.metric_queries["loss_pct"], step)
+        offered_query = self._render_query(
+            self.metric_queries.get("offered_load_kbps", self.metric_queries["throughput_kbps"]),
+            step,
+        )
+
+        throughput_map = self._query(throughput_query)
+        latency_map = self._query(latency_query)
+        loss_map = self._query(loss_query)
+        offered_map = self._query(offered_query)
 
         state = EnvState(timestamp_s=step * self.step_seconds)
         for slice_id in self.known_slice_ids:
@@ -98,6 +170,8 @@ class PrometheusCollector(MetricsCollector):
                 loss_pct=float(loss_map.get(slice_id, 0.0)),
                 offered_load_kbps=float(offered_map.get(slice_id, throughput_map.get(slice_id, 0.0))),
             )
+
+        self._apply_action_feedback(state)
         return state
 
 
