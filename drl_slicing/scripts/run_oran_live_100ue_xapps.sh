@@ -11,6 +11,7 @@ EMBB_RATIO=0.7
 RANDOM_SEED=42
 ACTIVE_ALGO="dqn"
 GNB_MODE="ueransim"
+UE_STACK="ueransim"
 TRAFFIC_TARGET_IP="12.1.1.1"
 CORE_CONTAINER="amf"
 DRY_RUN=0
@@ -41,6 +42,10 @@ while [[ $# -gt 0 ]]; do
       GNB_MODE="$2"
       shift 2
       ;;
+    --ue-stack)
+      UE_STACK="$2"
+      shift 2
+      ;;
     --traffic-target-ip)
       TRAFFIC_TARGET_IP="$2"
       shift 2
@@ -59,7 +64,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--ue-count N] [--embb-ratio R] [--random-seed S] [--active-algo dqn|a2c] [--gnb-mode ueransim|oai] [--traffic-target-ip IP] [--core-container NAME] [--config PATH] [--dry-run]"
+      echo "Usage: $0 [--ue-count N] [--embb-ratio R] [--random-seed S] [--active-algo dqn|a2c] [--gnb-mode ueransim|oai] [--ue-stack ueransim|external] [--traffic-target-ip IP] [--core-container NAME] [--config PATH] [--dry-run]"
       exit 2
       ;;
   esac
@@ -72,6 +77,11 @@ fi
 
 if [[ "$GNB_MODE" != "ueransim" && "$GNB_MODE" != "oai" ]]; then
   echo "--gnb-mode must be ueransim or oai"
+  exit 2
+fi
+
+if [[ "$UE_STACK" != "ueransim" && "$UE_STACK" != "external" ]]; then
+  echo "--ue-stack must be ueransim or external"
   exit 2
 fi
 
@@ -159,17 +169,22 @@ echo "  eMBB ratio       : $EMBB_RATIO"
 echo "  Random seed      : $RANDOM_SEED"
 echo "  Active controller: $ACTIVE_ALGO"
 echo "  gNB mode         : $GNB_MODE"
+echo "  UE stack         : $UE_STACK"
 if [[ -n "$GNB_IP_OVERRIDE" ]]; then
   echo "  UE gNB override  : $GNB_IP_OVERRIDE"
 fi
 echo "  Config           : $LIVE_CONFIG"
 
 echo "[1/10] Generate 100-UE fleet compose + profiles"
-GEN_CMD="cd '$DRL_DIR' && /usr/bin/python3 scripts/generate_ue_fleet_compose.py --ue-count '$UE_COUNT' --embb-ratio '$EMBB_RATIO' --random-seed '$RANDOM_SEED' --output-compose '$UE_COMPOSE_FILE' --output-profiles '$UE_PROFILE_CSV'"
-if [[ -n "$GNB_IP_OVERRIDE" ]]; then
-  GEN_CMD+=" --gnb-ip-override '$GNB_IP_OVERRIDE'"
+if [[ "$UE_STACK" == "ueransim" ]]; then
+  GEN_CMD="cd '$DRL_DIR' && /usr/bin/python3 scripts/generate_ue_fleet_compose.py --ue-count '$UE_COUNT' --embb-ratio '$EMBB_RATIO' --random-seed '$RANDOM_SEED' --output-compose '$UE_COMPOSE_FILE' --output-profiles '$UE_PROFILE_CSV'"
+  if [[ -n "$GNB_IP_OVERRIDE" ]]; then
+    GEN_CMD+=" --gnb-ip-override '$GNB_IP_OVERRIDE'"
+  fi
+  run_cmd "$GEN_CMD"
+else
+  echo "Skipping generated UE fleet (UE stack is external)"
 fi
-run_cmd "$GEN_CMD"
 
 echo "[2/10] Start Open5GS core + metrics"
 run_cmd "cd '$DOCKER_DIR' && docker compose -f sa-deploy.yaml up -d"
@@ -179,14 +194,26 @@ seed_active_policy
 run_cmd "cd '$DOCKER_DIR' && docker compose -f '$GNB_COMPOSE_FILE' up -d"
 
 echo "[4/10] Provision UE subscribers"
-run_cmd "cd '$DRL_DIR' && bash scripts/provision_open5gs_subscribers.sh --profiles '$UE_PROFILE_CSV' --core-container '$CORE_CONTAINER'"
+if [[ "$UE_STACK" == "ueransim" ]]; then
+  run_cmd "cd '$DRL_DIR' && bash scripts/provision_open5gs_subscribers.sh --profiles '$UE_PROFILE_CSV' --core-container '$CORE_CONTAINER'"
+else
+  echo "Skipping subscriber reprovision (expected external/OAI UE provisioning flow)"
+fi
 
 echo "[5/10] Start UE fleet containers"
-cleanup_stale_ue_containers
-run_cmd "cd '$DOCKER_DIR' && docker compose -f '$UE_COMPOSE_FILE' up -d"
+if [[ "$UE_STACK" == "ueransim" ]]; then
+  cleanup_stale_ue_containers
+  run_cmd "cd '$DOCKER_DIR' && docker compose -f '$UE_COMPOSE_FILE' up -d"
+else
+  echo "Skipping UERANSIM UE fleet startup (UE stack is external)"
+fi
 
 echo "[6/10] Start randomized eMBB/URLLC traffic loops"
-run_cmd "cd '$DRL_DIR' && bash scripts/start_ue_traffic_profiles.sh --profiles '$UE_PROFILE_CSV' --target-ip '$TRAFFIC_TARGET_IP'"
+if [[ "$UE_STACK" == "ueransim" ]]; then
+  run_cmd "cd '$DRL_DIR' && bash scripts/start_ue_traffic_profiles.sh --profiles '$UE_PROFILE_CSV' --target-ip '$TRAFFIC_TARGET_IP'"
+else
+  echo "Skipping container traffic loops (expected external/OAI UE traffic)"
+fi
 
 echo "[7/10] Wait for UE sessions to stabilize"
 if [[ "$DRY_RUN" -eq 0 ]]; then

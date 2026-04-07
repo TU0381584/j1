@@ -32,7 +32,8 @@ fi
 
 CMD=(
   bash "$DRL_DIR/scripts/run_oran_live_100ue_xapps.sh"
-  --gnb-mode ueransim
+  --gnb-mode oai
+  --ue-stack external
   --active-algo "$ACTIVE_ALGO"
 )
 
@@ -41,7 +42,8 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 echo "Launching closed-loop simulation preset"
-echo "  gNB mode         : ueransim"
+echo "  gNB mode         : oai"
+echo "  UE stack         : external (no UERANSIM)"
 echo "  Active controller: $ACTIVE_ALGO"
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "  Dry-run          : enabled"
