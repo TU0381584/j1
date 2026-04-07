@@ -147,20 +147,25 @@ def _build_controller(config: ExperimentConfig, targets: Dict[str, SliceTarget])
 
 def _load_controller_checkpoint(config: ExperimentConfig, controller: Controller) -> str:
     checkpoint_path = config.controller.checkpoint_path.strip()
+    mode = config.controller.mode
 
     if not checkpoint_path:
-        if config.controller.require_checkpoint and config.controller.mode in _INFERENCE_CONTROLLER_MODES:
+        if config.controller.require_checkpoint and mode in _INFERENCE_CONTROLLER_MODES:
             raise ValueError(
-                f"controller.require_checkpoint=true but no controller.checkpoint_path was provided for mode '{config.controller.mode}'."
+                f"controller.require_checkpoint=true but no controller.checkpoint_path was provided for mode '{mode}'."
             )
         return ""
 
     if not hasattr(controller, "load_checkpoint"):
         raise ValueError(
-            f"Controller mode '{config.controller.mode}' does not support checkpoint loading."
+            f"Controller mode '{mode}' does not support checkpoint loading."
         )
 
     if not os.path.isfile(checkpoint_path):
+        # Training controllers should be allowed to start from scratch and save
+        # a new checkpoint at the end of the run.
+        if mode in _TRAIN_CONTROLLER_MODES:
+            return ""
         raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_path}")
 
     controller.load_checkpoint(checkpoint_path)
