@@ -57,7 +57,7 @@ while IFS=, read -r _service container _component _imsi _imei _imeisv _ki _op _a
     continue
   fi
 
-  iface_finder='iface=$(ip -o link show | awk -F": " '\''/^(uesimtun0|oaitun_ue[0-9][0-9]*)$/ {print $2; exit}'\'' ); if [[ -z "$iface" ]]; then iface="uesimtun0"; fi;'
+  iface_finder='iface=$(ip -o link show | awk -F": " '\''$2 ~ /^(uesimtun0|oaitun_ue[0-9][0-9]*)$/ {print $2; exit}'\'' ); if [[ -z "$iface" ]]; then iface="uesimtun0"; fi;'
 
   # Per-profile traffic shape:
   # - ping path (preferred when available)

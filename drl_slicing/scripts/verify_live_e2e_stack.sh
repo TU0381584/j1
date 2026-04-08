@@ -82,7 +82,7 @@ echo "[e2e-check] Restarting profile-based random UE traffic loops"
 bash "$ROOT_DIR/drl_slicing/scripts/start_ue_traffic_profiles.sh" --target-ip "$TARGET_IP" >/dev/null
 
 for ue in "${ue_containers[@]}"; do
-  docker exec "$ue" bash -lc "iface=\$(ip -o link show | awk -F': ' '/^(uesimtun0|oaitun_ue[0-9][0-9]*)$/ {print \$2; exit}'); if [[ -n \"\$iface\" ]]; then ip route replace ${TARGET_IP}/32 dev \"\$iface\" >/dev/null 2>&1 || true; fi"
+  docker exec "$ue" bash -lc "iface=\$(ip -o link show | awk -F': ' '\$2 ~ /^(uesimtun0|oaitun_ue[0-9][0-9]*)$/ {print \$2; exit}'); if [[ -n \"\$iface\" ]]; then ip route replace ${TARGET_IP}/32 dev \"\$iface\" >/dev/null 2>&1 || true; fi"
 done
 
 loop_missing=()
