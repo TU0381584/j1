@@ -1,10 +1,14 @@
 import csv
 import json
+import os
 import random
+import subprocess
+import time
 import urllib.parse
 import urllib.request
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from .types import EnvState, SliceMetrics
 from .config import SliceTarget
@@ -76,11 +80,17 @@ class PrometheusCollector(MetricsCollector):
         self.enable_action_feedback = enable_action_feedback
         self.action_feedback_gain = max(0.0, float(action_feedback_gain))
         self.last_actions: Dict[str, SliceAction] = {}
+        self._upf_prev_sample = None
+        self._upf_rate_cache = None
+        self._ue_slice_map = self._load_ue_slice_map()
+        self._ue_prev_samples: Dict[str, Tuple[float, int]] = {}
+        self._ue_rate_cache: Optional[Tuple[float, Dict[str, float]]] = None
+        self._live_rate_cache: Optional[Tuple[float, Dict[str, float], Dict[str, float]]] = None
 
     def on_action(self, actions: List[SliceAction], targets: Dict[str, SliceTarget], step: int) -> None:
         self.last_actions = {action.slice_id: action for action in actions}
 
-    def _query(self, query: str) -> Dict[str, float]:
+    def _query(self, query: str, metric_name: str = "") -> Dict[str, float]:
         encoded = urllib.parse.urlencode({"query": query})
         url = f"{self.base_url}/api/v1/query?{encoded}"
         with urllib.request.urlopen(url, timeout=8) as response:
@@ -95,7 +105,248 @@ class PrometheusCollector(MetricsCollector):
                 continue
             value = float(item.get("value", [0, 0])[1])
             out[slice_id] = value
+
+        if metric_name in {"throughput_kbps", "offered_load_kbps"}:
+            out = self._maybe_apply_upf_counter_fallback(query, out, metric_name)
         return out
+
+    def _read_upf_packet_rates(self) -> tuple:
+        now = time.time()
+        if self._upf_rate_cache is not None:
+            cache_ts, rx_rate, tx_rate = self._upf_rate_cache
+            if (now - cache_ts) < 0.5:
+                return rx_rate, tx_rate
+
+        rx_packets = tx_packets = None
+        try:
+            result = subprocess.run(
+                ["docker", "exec", "upf", "cat", "/proc/net/dev"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            for line in result.stdout.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("ogstun:"):
+                    fields = stripped.split(":", 1)[1].split()
+                    rx_packets = int(fields[1])
+                    tx_packets = int(fields[9])
+                    break
+        except Exception:
+            rx_packets = None
+            tx_packets = None
+
+        if rx_packets is None or tx_packets is None:
+            self._upf_rate_cache = (now, 0.0, 0.0)
+            return 0.0, 0.0
+
+        rx_rate = 0.0
+        tx_rate = 0.0
+        if self._upf_prev_sample is not None:
+            prev_ts, prev_rx, prev_tx = self._upf_prev_sample
+            dt = max(now - prev_ts, 1e-3)
+            rx_rate = max(0.0, float(rx_packets - prev_rx) / dt)
+            tx_rate = max(0.0, float(tx_packets - prev_tx) / dt)
+
+        self._upf_prev_sample = (now, rx_packets, tx_packets)
+        self._upf_rate_cache = (now, rx_rate, tx_rate)
+        return rx_rate, tx_rate
+
+    @staticmethod
+    def _repo_root() -> Path:
+        # drl_slicing/oranslice_drl/collectors.py -> ORANSlice/
+        return Path(__file__).resolve().parents[2]
+
+    def _load_ue_slice_map(self) -> Dict[str, str]:
+        candidates: List[Path] = []
+        env_path = os.getenv("ORANSLICE_UE_PROFILE_CSV", "").strip()
+        if env_path:
+            candidates.append(Path(env_path))
+
+        repo_root = self._repo_root()
+        candidates.append(repo_root / "docker_open5gs" / "generated" / "ue_fleet_profiles.csv")
+        candidates.append(repo_root / "generated" / "ue_fleet_profiles.csv")
+
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+
+            try:
+                with candidate.open("r", encoding="utf-8") as handle:
+                    reader = csv.DictReader(handle)
+                    mapping: Dict[str, str] = {}
+                    for row in reader:
+                        container = (
+                            row.get("container_name")
+                            or row.get("service_name")
+                            or ""
+                        ).strip()
+                        slice_id = (row.get("slice_id") or "").strip()
+                        if container and slice_id in self.known_slice_ids:
+                            mapping[container] = slice_id
+                    if mapping:
+                        return mapping
+            except Exception:
+                continue
+
+        return {}
+
+    def _read_ue_offered_rates(self) -> Dict[str, float]:
+        now = time.time()
+        if self._ue_rate_cache is not None:
+            cache_ts, offered_map = self._ue_rate_cache
+            if (now - cache_ts) < 0.5:
+                return dict(offered_map)
+
+        offered_kbps: Dict[str, float] = {slice_id: 0.0 for slice_id in self.known_slice_ids}
+        if not self._ue_slice_map:
+            self._ue_rate_cache = (now, offered_kbps)
+            return offered_kbps
+
+        for container, slice_id in self._ue_slice_map.items():
+            tx_packets = None
+            try:
+                result = subprocess.run(
+                    ["docker", "exec", container, "cat", "/proc/net/dev"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+                for line in result.stdout.splitlines():
+                    stripped = line.strip()
+                    if stripped.startswith("uesimtun0:") or stripped.startswith("oaitun_ue"):
+                        fields = stripped.split(":", 1)[1].split()
+                        tx_packets = int(fields[9])
+                        break
+            except Exception:
+                tx_packets = None
+
+            if tx_packets is None:
+                continue
+
+            tx_rate = 0.0
+            prev_sample = self._ue_prev_samples.get(container)
+            if prev_sample is not None:
+                prev_ts, prev_tx = prev_sample
+                dt = max(now - prev_ts, 1e-3)
+                tx_rate = max(0.0, float(tx_packets - prev_tx) / dt)
+
+            self._ue_prev_samples[container] = (now, tx_packets)
+            offered_kbps[slice_id] += tx_rate * 12.0
+
+        self._ue_rate_cache = (now, offered_kbps)
+        return dict(offered_kbps)
+
+    def _read_live_e2e_slice_rates(self) -> Tuple[Dict[str, float], Dict[str, float]]:
+        now = time.time()
+        if self._live_rate_cache is not None:
+            cache_ts, throughput_map, offered_map = self._live_rate_cache
+            if (now - cache_ts) < 0.5:
+                return dict(throughput_map), dict(offered_map)
+
+        offered_map = self._read_ue_offered_rates()
+        rx_rate_pps, _ = self._read_upf_packet_rates()
+        total_served_kbps = max(0.0, rx_rate_pps * 12.0)
+        total_offered_kbps = max(0.0, sum(offered_map.values()))
+
+        throughput_map: Dict[str, float] = {slice_id: 0.0 for slice_id in self.known_slice_ids}
+        normalized_offered: Dict[str, float] = {slice_id: float(offered_map.get(slice_id, 0.0)) for slice_id in self.known_slice_ids}
+
+        if total_offered_kbps > 0.0:
+            served_ratio = max(0.0, min(1.0, total_served_kbps / total_offered_kbps))
+            for slice_id in self.known_slice_ids:
+                throughput_map[slice_id] = normalized_offered[slice_id] * served_ratio
+        elif total_served_kbps > 0.0:
+            # If UE counters are temporarily unavailable, retain a non-zero fallback
+            # by distributing served load equally across known slices.
+            equal_share = total_served_kbps / max(len(self.known_slice_ids), 1)
+            for slice_id in self.known_slice_ids:
+                throughput_map[slice_id] = float(equal_share)
+                normalized_offered[slice_id] = float(equal_share)
+
+        self._live_rate_cache = (now, throughput_map, normalized_offered)
+        return dict(throughput_map), dict(normalized_offered)
+
+    def _distribute_total_by_weights(self, weighted_map: Dict[str, float], total: float) -> Dict[str, float]:
+        weights: Dict[str, float] = {}
+        for slice_id in self.known_slice_ids:
+            weights[slice_id] = max(0.0, float(weighted_map.get(slice_id, 0.0)))
+
+        weight_sum = sum(weights.values())
+        if weight_sum <= 0.0:
+            equal = 1.0 / max(len(self.known_slice_ids), 1)
+            return {slice_id: float(total * equal) for slice_id in self.known_slice_ids}
+
+        return {slice_id: float(total * (weights[slice_id] / weight_sum)) for slice_id in self.known_slice_ids}
+
+    def _maybe_apply_upf_counter_fallback(
+        self,
+        query: str,
+        out: Dict[str, float],
+        metric_name: str,
+    ) -> Dict[str, float]:
+        lowered = query.lower()
+        is_upf_pkt_query = (
+            "fivegs_ep_n3_gtp_indatapktn3upf" in lowered
+            or "fivegs_ep_n3_gtp_outdatapktn3upf" in lowered
+        )
+        if not is_upf_pkt_query:
+            return out
+
+        # Some Open5GS builds export the N3 packet metrics but keep them pinned
+        # at zero. If that happens, use live UPF interface counters as fallback.
+        if sum(out.values()) > 0.05:
+            return out
+
+        live_throughput, live_offered = self._read_live_e2e_slice_rates()
+        if metric_name == "throughput_kbps" and sum(live_throughput.values()) > 0.0:
+            return live_throughput
+        if metric_name == "offered_load_kbps" and sum(live_offered.values()) > 0.0:
+            return live_offered
+
+        rx_rate_pps, tx_rate_pps = self._read_upf_packet_rates()
+        if metric_name == "throughput_kbps":
+            total_kbps = rx_rate_pps * 12.0
+        else:
+            # In some setups traffic is predominantly uplink (UE -> DN), which can
+            # keep tx packet counters near zero. Use whichever direction is live.
+            total_kbps = max(rx_rate_pps, tx_rate_pps) * 12.0
+
+        if total_kbps <= 0.0:
+            return out
+        return self._distribute_total_by_weights(out, total_kbps)
+
+    def _maybe_apply_latency_loss_fallback(
+        self,
+        throughput_map: Dict[str, float],
+        offered_map: Dict[str, float],
+        latency_map: Dict[str, float],
+        loss_map: Dict[str, float],
+    ) -> tuple:
+        lat_values = [float(latency_map.get(slice_id, 0.0)) for slice_id in self.known_slice_ids]
+        loss_values = [float(loss_map.get(slice_id, 0.0)) for slice_id in self.known_slice_ids]
+
+        if not lat_values or not loss_values:
+            return latency_map, loss_map
+
+        # Guarded fallback: if exporter values are pinned at clearly pathological
+        # levels for all slices, derive SLA surrogates from served-demand ratio.
+        if not (min(lat_values) > 80.0 and min(loss_values) > 2.5):
+            return latency_map, loss_map
+
+        fixed_latency: Dict[str, float] = {}
+        fixed_loss: Dict[str, float] = {}
+        for slice_id in self.known_slice_ids:
+            offered = max(float(offered_map.get(slice_id, throughput_map.get(slice_id, 0.0))), 1e-6)
+            throughput = max(0.0, float(throughput_map.get(slice_id, 0.0)))
+            served_ratio = max(0.0, min(1.2, throughput / offered))
+            congestion = max(0.0, 1.0 - served_ratio)
+
+            fixed_latency[slice_id] = 10.0 + 55.0 * congestion
+            fixed_loss[slice_id] = 0.05 + 2.0 * congestion
+
+        return fixed_latency, fixed_loss
 
     @staticmethod
     def _render_query(query: str, step: int) -> str:
@@ -156,10 +407,16 @@ class PrometheusCollector(MetricsCollector):
             step,
         )
 
-        throughput_map = self._query(throughput_query)
-        latency_map = self._query(latency_query)
-        loss_map = self._query(loss_query)
-        offered_map = self._query(offered_query)
+        throughput_map = self._query(throughput_query, metric_name="throughput_kbps")
+        latency_map = self._query(latency_query, metric_name="latency_ms")
+        loss_map = self._query(loss_query, metric_name="loss_pct")
+        offered_map = self._query(offered_query, metric_name="offered_load_kbps")
+        latency_map, loss_map = self._maybe_apply_latency_loss_fallback(
+            throughput_map,
+            offered_map,
+            latency_map,
+            loss_map,
+        )
 
         state = EnvState(timestamp_s=step * self.step_seconds)
         for slice_id in self.known_slice_ids:

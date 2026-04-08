@@ -123,6 +123,8 @@ def _build_controller(config: ExperimentConfig, targets: Dict[str, SliceTarget])
     if mode == "static":
         return StaticController(targets)
     if mode == "rule_based":
+        return ThresholdHeuristicController(targets, config.controller)
+    if mode == "rule_based_sla":
         return RuleBasedSLAController(targets, config.controller)
     if mode == "random":
         return RandomController(targets, config.random_seed)

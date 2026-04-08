@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--controllers",
         nargs="+",
-        default=["dqn_train", "a2c_train", "threshold_heuristic"],
+        default=["dqn", "a2c", "rule_based"],
         help="Controller folders to load",
     )
     parser.add_argument("--seed", type=int, default=42, help="Seed to plot")
@@ -41,6 +41,7 @@ def _display_name(controller: str) -> str:
         "dqn_train": "DQN",
         "a2c": "A2C",
         "a2c_train": "A2C",
+        "rule_based": "Rule-Based Baseline",
         "threshold_heuristic": "Threshold Baseline",
     }
     return names.get(controller, controller)

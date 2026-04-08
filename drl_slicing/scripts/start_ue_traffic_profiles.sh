@@ -7,6 +7,7 @@ DEFAULT_PROFILE_CSV="$ROOT_DIR/docker_open5gs/generated/ue_fleet_profiles.csv"
 PROFILE_CSV="$DEFAULT_PROFILE_CSV"
 TARGET_IP="12.1.1.1"
 DRY_RUN=0
+TRAFFIC_SEED=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,9 +23,13 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=1
       shift
       ;;
+    --seed)
+      TRAFFIC_SEED="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 [--profiles <csv>] [--target-ip <ip>] [--dry-run]"
+      echo "Usage: $0 [--profiles <csv>] [--target-ip <ip>] [--seed <int>] [--dry-run]"
       exit 2
       ;;
   esac
@@ -52,17 +57,49 @@ while IFS=, read -r _service container _component _imsi _imei _imeisv _ki _op _a
     continue
   fi
 
+  iface_finder='iface=$(ip -o link show | awk -F": " '\''/^(uesimtun0|oaitun_ue[0-9][0-9]*)$/ {print $2; exit}'\'' ); if [[ -z "$iface" ]]; then iface="uesimtun0"; fi;'
+
+  # Per-profile traffic shape:
+  # - ping path (preferred when available)
+  # - bash /dev/udp fallback for minimal UE images without ping
   case "$profile" in
     embb)
-      traffic_cmd="while true; do ping -I uesimtun0 -s \$((1200 + RANDOM % 180)) -i 0.03 -c 25 ${TARGET_IP} >/dev/null 2>&1 || true; sleep 0.\$((RANDOM % 3 + 1)); done"
+      pkt_base=1200
+      pkt_span=180
+      burst_count=25
+      inter_pkt_sleep=0.03
+      post_burst_sleep='0.$((RANDOM % 3 + 1))'
       ;;
     urllc)
-      traffic_cmd="while true; do ping -I uesimtun0 -s \$((48 + RANDOM % 64)) -i 0.15 -c 8 ${TARGET_IP} >/dev/null 2>&1 || true; sleep 0.\$((RANDOM % 2 + 1)); done"
+      pkt_base=48
+      pkt_span=64
+      burst_count=8
+      inter_pkt_sleep=0.15
+      post_burst_sleep='0.$((RANDOM % 2 + 1))'
+      ;;
+    mmtc)
+      pkt_base=24
+      pkt_span=24
+      burst_count=2
+      inter_pkt_sleep=1.0
+      post_burst_sleep='$((RANDOM % 5 + 2))'
       ;;
     *)
-      traffic_cmd="while true; do ping -I uesimtun0 -s 256 -i 0.1 -c 10 ${TARGET_IP} >/dev/null 2>&1 || true; sleep 1; done"
+      pkt_base=256
+      pkt_span=1
+      burst_count=10
+      inter_pkt_sleep=0.1
+      post_burst_sleep='1'
       ;;
   esac
+
+  seed_prefix=""
+  if [[ -n "$TRAFFIC_SEED" ]]; then
+    seed_value=$((TRAFFIC_SEED + started * 97))
+    seed_prefix="RANDOM=${seed_value}; "
+  fi
+
+  traffic_cmd="${seed_prefix}ORANSLICE_TRAFFIC_LOOP=1; while true; do ${iface_finder} ip route replace ${TARGET_IP}/32 dev \"\$iface\" >/dev/null 2>&1 || true; if command -v ping >/dev/null 2>&1; then ping -I \"\$iface\" -s \$(( ${pkt_base} + RANDOM % ${pkt_span} )) -i ${inter_pkt_sleep} -c ${burst_count} ${TARGET_IP} >/dev/null 2>&1 || true; else for ((i=0;i<${burst_count};i++)); do payload_size=\$(( ${pkt_base} + RANDOM % ${pkt_span} )); printf -v payload '%*s' \"\$payload_size\" ''; payload=\${payload// /x}; printf '%s' \"\$payload\" > /dev/udp/${TARGET_IP}/5001 || true; sleep ${inter_pkt_sleep}; done; fi; sleep ${post_burst_sleep}; done"
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "[DRY-RUN] docker exec -d $container bash -lc '<traffic loop for $profile>'"
@@ -70,8 +107,9 @@ while IFS=, read -r _service container _component _imsi _imei _imeisv _ki _op _a
     continue
   fi
 
-  # Avoid self-termination by matching only legacy loop command lines.
-  docker exec "$container" bash -lc "pkill -f '^bash -lc while true; do ping -I uesimtun0' >/dev/null 2>&1 || true; pkill -x ping >/dev/null 2>&1 || true"
+  # Avoid self-termination by matching anchored legacy loop patterns and the
+  # explicit marker used by current loops.
+  docker exec "$container" bash -lc "pkill -f '^bash -lc while true; do iface=\\$\\(ip -o link show' >/dev/null 2>&1 || true; pkill -f '^bash -lc ORANSLICE_TRAFFIC_LOOP=1; while true' >/dev/null 2>&1 || true; pkill -x ping >/dev/null 2>&1 || true"
   docker exec -d "$container" bash -lc "${traffic_cmd}"
   started=$((started + 1))
 done < <(tail -n +2 "$PROFILE_CSV")
