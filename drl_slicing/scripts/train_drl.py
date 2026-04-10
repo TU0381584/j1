@@ -35,6 +35,7 @@ SUPPORTED_CONTROLLER_MODES = [
     "ppo_train",
     "ppo",
     "rule_based",
+    "rule_based_drl_hybrid",
     "static",
     "random",
     "threshold_heuristic",
@@ -152,6 +153,12 @@ def run_controller(
     warm_start_max_samples: Optional[int] = None,
     checkpoint_overrides: Optional[Dict[str, str]] = None,
     require_inference_checkpoints: bool = False,
+    hybrid_dqn_checkpoint: Optional[str] = None,
+    hybrid_a2c_checkpoint: Optional[str] = None,
+    hybrid_base_weight: Optional[float] = None,
+    hybrid_dqn_weight: Optional[float] = None,
+    hybrid_a2c_weight: Optional[float] = None,
+    hybrid_require_checkpoints: bool = False,
 ) -> Dict:
     """
     Run one controller mode across multiple seeds.
@@ -171,6 +178,12 @@ def run_controller(
         warm_start_max_samples: optional sample cap for warm-start dataset
         checkpoint_overrides: optional mapping controller_mode->checkpoint_path
         require_inference_checkpoints: require checkpoints for dqn/a2c/ppo inference modes
+        hybrid_dqn_checkpoint: optional DQN checkpoint used by rule_based_drl_hybrid
+        hybrid_a2c_checkpoint: optional A2C checkpoint used by rule_based_drl_hybrid
+        hybrid_base_weight: optional baseline weight for rule_based_drl_hybrid
+        hybrid_dqn_weight: optional DQN weight for rule_based_drl_hybrid
+        hybrid_a2c_weight: optional A2C weight for rule_based_drl_hybrid
+        hybrid_require_checkpoints: require both hybrid checkpoints when hybrid mode is used
 
     Returns:
         summary stats for the controller
@@ -214,6 +227,19 @@ def run_controller(
             config.controller.warm_start_batch_size = warm_start_batch_size
         if warm_start_max_samples is not None:
             config.controller.warm_start_max_samples = warm_start_max_samples
+
+        if hybrid_dqn_checkpoint is not None:
+            config.controller.hybrid_dqn_checkpoint_path = hybrid_dqn_checkpoint
+        if hybrid_a2c_checkpoint is not None:
+            config.controller.hybrid_a2c_checkpoint_path = hybrid_a2c_checkpoint
+        if hybrid_base_weight is not None:
+            config.controller.hybrid_base_weight = float(hybrid_base_weight)
+        if hybrid_dqn_weight is not None:
+            config.controller.hybrid_dqn_weight = float(hybrid_dqn_weight)
+        if hybrid_a2c_weight is not None:
+            config.controller.hybrid_a2c_weight = float(hybrid_a2c_weight)
+        if hybrid_require_checkpoints:
+            config.controller.hybrid_require_checkpoints = True
 
         if checkpoint_overrides and controller_mode in checkpoint_overrides:
             config.controller.checkpoint_path = checkpoint_overrides[controller_mode]
@@ -510,6 +536,45 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--hybrid-dqn-checkpoint",
+        default=None,
+        help="Checkpoint path for DQN policy inside rule_based_drl_hybrid",
+    )
+
+    parser.add_argument(
+        "--hybrid-a2c-checkpoint",
+        default=None,
+        help="Checkpoint path for A2C policy inside rule_based_drl_hybrid",
+    )
+
+    parser.add_argument(
+        "--hybrid-base-weight",
+        type=float,
+        default=None,
+        help="Weight for baseline action in rule_based_drl_hybrid",
+    )
+
+    parser.add_argument(
+        "--hybrid-dqn-weight",
+        type=float,
+        default=None,
+        help="Weight for DQN action in rule_based_drl_hybrid",
+    )
+
+    parser.add_argument(
+        "--hybrid-a2c-weight",
+        type=float,
+        default=None,
+        help="Weight for A2C action in rule_based_drl_hybrid",
+    )
+
+    parser.add_argument(
+        "--hybrid-require-checkpoints",
+        action="store_true",
+        help="Require DQN/A2C checkpoints when using rule_based_drl_hybrid",
+    )
+
+    parser.add_argument(
         "--seeds",
         nargs="+",
         type=int,
@@ -640,6 +705,12 @@ def main() -> int:
                 warm_start_max_samples=args.warm_start_max_samples,
                 checkpoint_overrides=checkpoint_overrides,
                 require_inference_checkpoints=args.require_inference_checkpoints,
+                hybrid_dqn_checkpoint=args.hybrid_dqn_checkpoint,
+                hybrid_a2c_checkpoint=args.hybrid_a2c_checkpoint,
+                hybrid_base_weight=args.hybrid_base_weight,
+                hybrid_dqn_weight=args.hybrid_dqn_weight,
+                hybrid_a2c_weight=args.hybrid_a2c_weight,
+                hybrid_require_checkpoints=args.hybrid_require_checkpoints,
             )
         did_run = True
 

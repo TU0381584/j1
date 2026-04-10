@@ -29,6 +29,7 @@ def test_a2c_integration():
     # Run experiment (short 5-step validation)
     config.horizon_steps = 5
     config.collector.step_seconds = 0
+    config.collector.allow_non_live_for_training = True
     config.output.policy_json_path = 'results/test_a2c_policy.json'
     config.output.run_log_csv = 'results/test_a2c_log.csv'
     

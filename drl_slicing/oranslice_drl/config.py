@@ -43,6 +43,12 @@ class ControllerConfig:
     warm_start_epochs: int = 3
     warm_start_batch_size: int = 64
     warm_start_max_samples: int = 0
+    hybrid_base_weight: float = 0.50
+    hybrid_dqn_weight: float = 0.25
+    hybrid_a2c_weight: float = 0.25
+    hybrid_dqn_checkpoint_path: str = ""
+    hybrid_a2c_checkpoint_path: str = ""
+    hybrid_require_checkpoints: bool = False
 
 
 @dataclass
@@ -130,6 +136,12 @@ def load_experiment_config(config_path: str) -> ExperimentConfig:
             warm_start_epochs=int(controller_cfg.get("warm_start_epochs", 3)),
             warm_start_batch_size=int(controller_cfg.get("warm_start_batch_size", 64)),
             warm_start_max_samples=int(controller_cfg.get("warm_start_max_samples", 0)),
+            hybrid_base_weight=float(controller_cfg.get("hybrid_base_weight", 0.50)),
+            hybrid_dqn_weight=float(controller_cfg.get("hybrid_dqn_weight", 0.25)),
+            hybrid_a2c_weight=float(controller_cfg.get("hybrid_a2c_weight", 0.25)),
+            hybrid_dqn_checkpoint_path=str(controller_cfg.get("hybrid_dqn_checkpoint_path", "")),
+            hybrid_a2c_checkpoint_path=str(controller_cfg.get("hybrid_a2c_checkpoint_path", "")),
+            hybrid_require_checkpoints=bool(controller_cfg.get("hybrid_require_checkpoints", False)),
         ),
         live_congestion=LiveCongestionConfig(
             enabled=bool(live_congestion_cfg.get("enabled", False)),

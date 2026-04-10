@@ -1,4 +1,5 @@
 import random
+from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import Dict, List
 import numpy as np
@@ -150,6 +151,185 @@ class ThresholdHeuristicController(Controller):
         return actions
 
 
+class RuleBasedDRLHybridController(Controller):
+    """
+    Rule-based baseline enhanced with frozen DQN and A2C policy proposals.
+
+    Final action is a weighted blend of baseline, DQN, and A2C actions.
+    """
+
+    def __init__(
+        self,
+        targets: Dict[str, SliceTarget],
+        cfg: ControllerConfig,
+        device: str = "cpu",
+    ) -> None:
+        self.targets = targets
+        self.cfg = cfg
+        self.device = device
+
+        self.base_controller = ThresholdHeuristicController(targets, cfg)
+        self.state_encoder = StateEncoder(targets)
+        self.action_decoder = ActionDecoder(targets)
+
+        self.weights = self._normalize_weights(
+            base_weight=cfg.hybrid_base_weight,
+            dqn_weight=cfg.hybrid_dqn_weight,
+            a2c_weight=cfg.hybrid_a2c_weight,
+        )
+
+        self.dqn_policy = DQNPolicy(
+            state_dim=self.state_encoder.state_dim,
+            action_dim=self.action_decoder.action_dim,
+            n_branches=self.action_decoder.num_slices,
+            hidden_dim=128,
+            learning_rate=1e-3,
+            gamma=0.99,
+            epsilon_start=0.0,
+            epsilon_end=0.0,
+            epsilon_decay=1.0,
+            device=device,
+        )
+        self.a2c_policy = A2CPolicy(
+            state_dim=self.state_encoder.state_dim,
+            action_dim=self.action_decoder.action_dim,
+            n_branches=self.action_decoder.num_slices,
+            hidden_dim=128,
+            learning_rate=1e-3,
+            gamma=0.99,
+            device=device,
+        )
+
+        self.dqn_checkpoint_loaded = ""
+        self.a2c_checkpoint_loaded = ""
+        self._load_hybrid_checkpoints()
+
+    @staticmethod
+    def _normalize_weights(base_weight: float, dqn_weight: float, a2c_weight: float) -> Dict[str, float]:
+        base = max(0.0, float(base_weight))
+        dqn = max(0.0, float(dqn_weight))
+        a2c = max(0.0, float(a2c_weight))
+        total = base + dqn + a2c
+        if total <= 1e-9:
+            return {"base": 1.0, "dqn": 0.0, "a2c": 0.0}
+        return {
+            "base": base / total,
+            "dqn": dqn / total,
+            "a2c": a2c / total,
+        }
+
+    @staticmethod
+    def _resolve_checkpoint_path(path: str) -> Path:
+        candidate = Path(path).expanduser()
+        if candidate.is_absolute():
+            return candidate
+        drl_root = Path(__file__).resolve().parents[1]
+        return (drl_root / candidate).resolve()
+
+    def _load_policy_checkpoint(self, policy: RLPolicy, path: str, label: str, required: bool) -> str:
+        clean = str(path).strip()
+        if not clean:
+            if required:
+                raise ValueError(f"Hybrid controller requires {label} checkpoint path, but it is empty.")
+            return ""
+
+        resolved = self._resolve_checkpoint_path(clean)
+        if not resolved.is_file():
+            if required:
+                raise FileNotFoundError(f"Hybrid controller {label} checkpoint not found: {resolved}")
+            return ""
+
+        policy.load_checkpoint(str(resolved))
+        return str(resolved)
+
+    def _load_hybrid_checkpoints(self) -> None:
+        required = bool(self.cfg.hybrid_require_checkpoints)
+        self.dqn_checkpoint_loaded = self._load_policy_checkpoint(
+            policy=self.dqn_policy,
+            path=self.cfg.hybrid_dqn_checkpoint_path,
+            label="DQN",
+            required=required,
+        )
+        self.a2c_checkpoint_loaded = self._load_policy_checkpoint(
+            policy=self.a2c_policy,
+            path=self.cfg.hybrid_a2c_checkpoint_path,
+            label="A2C",
+            required=required,
+        )
+
+    @staticmethod
+    def _actions_to_allocation(actions: List[SliceAction]) -> Dict[str, Dict[str, int]]:
+        return {
+            action.slice_id: {
+                "min_ratio": int(action.min_ratio),
+                "max_ratio": int(action.max_ratio),
+            }
+            for action in actions
+        }
+
+    def act(self, state: EnvState) -> List[SliceAction]:
+        baseline_actions = self.base_controller.act(state)
+        baseline_alloc = self._actions_to_allocation(baseline_actions)
+
+        state_vec = self.state_encoder.encode(state)
+
+        dqn_action_idx, _ = self.dqn_policy.select_action(state_vec, training=False)
+        dqn_alloc = self.action_decoder.decode(self.action_decoder.decode_to_vector(dqn_action_idx))
+
+        a2c_action_idx, _ = self.a2c_policy.select_action(state_vec, training=False)
+        a2c_alloc = self.action_decoder.decode(self.action_decoder.decode_to_vector(a2c_action_idx))
+
+        out_actions: List[SliceAction] = []
+        for slice_id, target in self.targets.items():
+            base_min = baseline_alloc[slice_id]["min_ratio"]
+            base_max = baseline_alloc[slice_id]["max_ratio"]
+            dqn_min = dqn_alloc[slice_id]["min_ratio"]
+            dqn_max = dqn_alloc[slice_id]["max_ratio"]
+            a2c_min = a2c_alloc[slice_id]["min_ratio"]
+            a2c_max = a2c_alloc[slice_id]["max_ratio"]
+
+            raw_min = (
+                self.weights["base"] * base_min
+                + self.weights["dqn"] * dqn_min
+                + self.weights["a2c"] * a2c_min
+            )
+            raw_max = (
+                self.weights["base"] * base_max
+                + self.weights["dqn"] * dqn_max
+                + self.weights["a2c"] * a2c_max
+            )
+
+            min_lo, min_hi = target.min_ratio_bounds
+            max_lo, max_hi = target.max_ratio_bounds
+            min_ratio = int(round(raw_min))
+            max_ratio = int(round(raw_max))
+
+            min_ratio = max(min_lo, min(min_hi, min_ratio))
+            max_ratio = max(max_lo, min(max_hi, max_ratio))
+            if min_ratio > max_ratio:
+                min_ratio = max_ratio
+
+            out_actions.append(
+                SliceAction(
+                    slice_id=slice_id,
+                    min_ratio=min_ratio,
+                    max_ratio=max_ratio,
+                    dedicated_ratio=target.dedicated_ratio,
+                )
+            )
+
+        return out_actions
+
+    def get_training_info(self) -> Dict:
+        return {
+            "hybrid_base_weight": self.weights["base"],
+            "hybrid_dqn_weight": self.weights["dqn"],
+            "hybrid_a2c_weight": self.weights["a2c"],
+            "hybrid_dqn_checkpoint_loaded": self.dqn_checkpoint_loaded,
+            "hybrid_a2c_checkpoint_loaded": self.a2c_checkpoint_loaded,
+        }
+
+
 class RandomController(Controller):
     def __init__(self, targets: Dict[str, SliceTarget], seed: int) -> None:
         self.targets = targets
@@ -180,7 +360,7 @@ def _apply_offline_warm_start(
     policy: RLPolicy,
     cfg: ControllerConfig,
     state_dim: int,
-    action_dim: int,
+    action_decoder: ActionDecoder,
 ) -> Dict:
     """Apply offline behavior-cloning warm-start if enabled in config."""
     if not cfg.offline_warm_start:
@@ -199,6 +379,10 @@ def _apply_offline_warm_start(
         expected_state_dim=state_dim,
         max_samples=max(0, int(cfg.warm_start_max_samples)),
     )
+
+    # Backward compatibility: legacy datasets may store scalar action indices.
+    if actions.ndim == 1:
+        actions = np.stack([action_decoder.decode_to_vector(int(a)) for a in actions], axis=0)
 
     metrics = policy.behavior_clone_train(
         states=states,
@@ -242,6 +426,7 @@ class DQNController(Controller):
         self.policy = DQNPolicy(
             state_dim=self.state_encoder.state_dim,
             action_dim=self.action_decoder.action_dim,
+            n_branches=self.action_decoder.num_slices,
             hidden_dim=128,
             learning_rate=learning_rate,
             gamma=0.99,
@@ -271,7 +456,7 @@ class DQNController(Controller):
                 policy=self.policy,
                 cfg=cfg,
                 state_dim=self.state_encoder.state_dim,
-                action_dim=self.action_decoder.action_dim,
+                action_decoder=self.action_decoder,
             )
 
         self._last_state = None
@@ -283,9 +468,10 @@ class DQNController(Controller):
         """
         state_vec = self.state_encoder.encode(state)
         action_idx, q_value = self.policy.select_action(state_vec, training=self.train_mode)
+        action_vec = self.action_decoder.decode_to_vector(action_idx)
         self._last_state = state
-        self._last_action_idx = int(action_idx)
-        allocation = self.action_decoder.decode(action_idx)
+        self._last_action_idx = action_vec
+        allocation = self.action_decoder.decode(action_vec)
 
         actions: List[SliceAction] = []
         for slice_id, alloc in allocation.items():
@@ -326,9 +512,8 @@ class DQNController(Controller):
     def record_transition(self, state: EnvState, action_list: List[SliceAction]) -> None:
         """Record current state/action for next train_step call."""
         self._last_state = state
-        # Convert action list back to action index (for replay buffer)
-        # This is a simplification; ideally store the index from act()
-        self._last_action = 0
+        # Convert SliceAction list to factorized action vector for replay buffer.
+        self._last_action_idx = self.action_decoder.encode_actions(action_list)
 
     def get_training_info(self) -> Dict:
         """Return current training metrics."""
@@ -375,6 +560,7 @@ class A2CController(Controller):
         self.policy = A2CPolicy(
             state_dim=self.state_encoder.state_dim,
             action_dim=self.action_decoder.action_dim,
+            n_branches=self.action_decoder.num_slices,
             hidden_dim=128,
             learning_rate=learning_rate,
             gamma=0.99,
@@ -400,7 +586,7 @@ class A2CController(Controller):
                 policy=self.policy,
                 cfg=cfg,
                 state_dim=self.state_encoder.state_dim,
-                action_dim=self.action_decoder.action_dim,
+                action_decoder=self.action_decoder,
             )
 
         self._last_state = None
@@ -412,9 +598,10 @@ class A2CController(Controller):
         """
         state_vec = self.state_encoder.encode(state)
         action_idx, value = self.policy.select_action(state_vec, training=self.train_mode)
+        action_vec = self.action_decoder.decode_to_vector(action_idx)
         self._last_state = state
-        self._last_action_idx = int(action_idx)
-        allocation = self.action_decoder.decode(action_idx)
+        self._last_action_idx = action_vec
+        allocation = self.action_decoder.decode(action_vec)
 
         actions: List[SliceAction] = []
         for slice_id, alloc in allocation.items():
@@ -489,6 +676,7 @@ class PPOController(Controller):
         self.policy = PPOPolicy(
             state_dim=self.state_encoder.state_dim,
             action_dim=self.action_decoder.action_dim,
+            n_branches=self.action_decoder.num_slices,
             hidden_dim=128,
             learning_rate=learning_rate,
             gamma=0.99,
@@ -516,7 +704,7 @@ class PPOController(Controller):
                 policy=self.policy,
                 cfg=cfg,
                 state_dim=self.state_encoder.state_dim,
-                action_dim=self.action_decoder.action_dim,
+                action_decoder=self.action_decoder,
             )
 
         self._last_state = None
@@ -526,11 +714,12 @@ class PPOController(Controller):
     def act(self, state: EnvState) -> List[SliceAction]:
         state_vec = self.state_encoder.encode(state)
         action_idx, log_prob = self.policy.select_action(state_vec, training=self.train_mode)
+        action_vec = self.action_decoder.decode_to_vector(action_idx)
         self._last_state = state
-        self._last_action_idx = int(action_idx)
+        self._last_action_idx = action_vec
         self._last_log_prob = float(log_prob)
 
-        allocation = self.action_decoder.decode(action_idx)
+        allocation = self.action_decoder.decode(action_vec)
         actions: List[SliceAction] = []
         for slice_id, alloc in allocation.items():
             target = self.targets[slice_id]

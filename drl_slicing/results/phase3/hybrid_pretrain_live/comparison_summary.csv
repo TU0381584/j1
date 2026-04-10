@@ -1,0 +1,2 @@
+controller,num_seeds,reward_mean,reward_std,reward_min,reward_max,reward_total_mean,reward_total_std,violations_mean,violations_std,violations_per_step_mean,violations_per_step_std
+a2c_train,1,-0.4989026754345578,0.0,-0.4989026754345578,-0.4989026754345578,-39.912214034764624,0.0,53.0,0.0,0.6625,0.0

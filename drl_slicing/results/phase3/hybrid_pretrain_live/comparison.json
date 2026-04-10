@@ -1,0 +1,15 @@
+{
+  "a2c_train": {
+    "num_seeds": 1,
+    "reward_mean": -0.4989026754345578,
+    "reward_std": 0.0,
+    "reward_min": -0.4989026754345578,
+    "reward_max": -0.4989026754345578,
+    "reward_total_mean": -39.912214034764624,
+    "reward_total_std": 0.0,
+    "violations_mean": 53.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.6625,
+    "violations_per_step_std": 0.0
+  }
+}

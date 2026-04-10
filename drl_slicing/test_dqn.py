@@ -18,6 +18,7 @@ print("Testing DQN implementation...")
 cfg = load_experiment_config('configs/rfsim_dqn_training.yaml')
 cfg.horizon_steps = 5  # Short run for validation
 cfg.collector.step_seconds = 0
+cfg.collector.allow_non_live_for_training = True
 cfg.output.policy_json_path = 'results/test_dqn_policy.json'
 cfg.output.run_log_csv = 'results/test_dqn_log.csv'
 

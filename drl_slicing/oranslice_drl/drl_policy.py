@@ -3,7 +3,7 @@ DRL Policy implementations: DQN, A2C, and PPO.
 Abstract base class for algorithm-agnostic integration.
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Tuple, List, Any
+from typing import Dict, Tuple, List, Any, Union
 import numpy as np
 import torch
 import torch.nn as nn
@@ -23,7 +23,7 @@ class RLPolicy(ABC):
     """Abstract base class for RL policies."""
 
     @abstractmethod
-    def select_action(self, state: np.ndarray, training: bool = False) -> Tuple[int, float]:
+    def select_action(self, state: np.ndarray, training: bool = False) -> Tuple[Union[int, np.ndarray], float]:
         """
         Select action(s) given state.
         
@@ -65,21 +65,23 @@ class RLPolicy(ABC):
 class QNetwork(nn.Module):
     """Deep Q-Network for slice resource allocation."""
 
-    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128):
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128, n_branches: int = 1):
         super().__init__()
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.n_branches = max(1, int(n_branches))
 
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, action_dim),
+            nn.Linear(hidden_dim, self.n_branches * action_dim),
         )
 
     def forward(self, state: torch.Tensor) -> torch.Tensor:
-        return self.net(state)
+        logits = self.net(state)
+        return logits.view(-1, self.n_branches, self.action_dim)
 
 
 class DQNPolicy(RLPolicy):
@@ -94,6 +96,7 @@ class DQNPolicy(RLPolicy):
         self,
         state_dim: int,
         action_dim: int,
+        n_branches: int = 1,
         hidden_dim: int = 128,
         learning_rate: float = 1e-3,
         gamma: float = 0.99,
@@ -104,6 +107,7 @@ class DQNPolicy(RLPolicy):
     ):
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.n_branches = max(1, int(n_branches))
         self.learning_rate = learning_rate
         self.gamma = gamma
         self.epsilon = epsilon_start
@@ -112,8 +116,8 @@ class DQNPolicy(RLPolicy):
         self.device = torch.device(device)
 
         # Networks
-        self.q_network = QNetwork(state_dim, action_dim, hidden_dim).to(self.device)
-        self.target_network = QNetwork(state_dim, action_dim, hidden_dim).to(self.device)
+        self.q_network = QNetwork(state_dim, action_dim, hidden_dim, self.n_branches).to(self.device)
+        self.target_network = QNetwork(state_dim, action_dim, hidden_dim, self.n_branches).to(self.device)
         self.target_network.load_state_dict(self.q_network.state_dict())
         self.target_network.eval()
 
@@ -122,7 +126,7 @@ class DQNPolicy(RLPolicy):
 
         self.train_step_count = 0
 
-    def select_action(self, state: np.ndarray, training: bool = False) -> Tuple[int, float]:
+    def select_action(self, state: np.ndarray, training: bool = False) -> Tuple[Union[int, np.ndarray], float]:
         """
         Epsilon-greedy action selection.
         
@@ -135,15 +139,18 @@ class DQNPolicy(RLPolicy):
             q_value: Q-value of selected action
         """
         if training and np.random.rand() < self.epsilon:
-            action = np.random.randint(0, self.action_dim)
+            action = np.random.randint(0, self.action_dim, size=self.n_branches, dtype=np.int64)
             q_value = 0.0
         else:
             state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
             with torch.no_grad():
                 q_values = self.q_network(state_t)
-            action = int(q_values.argmax(dim=1).item())
-            q_value = float(q_values.max().item())
+            action_t = q_values.argmax(dim=2).squeeze(0)
+            action = action_t.cpu().numpy().astype(np.int64)
+            q_value = float(q_values.max(dim=2)[0].sum().item())
 
+        if self.n_branches == 1:
+            return int(action[0]), q_value
         return action, q_value
 
     def train_step(self, batch: Dict) -> Dict:
@@ -158,18 +165,26 @@ class DQNPolicy(RLPolicy):
             dones: [batch_size]
         """
         states = torch.FloatTensor(batch["states"]).to(self.device)
-        actions = torch.LongTensor(batch["actions"]).to(self.device)
+        actions = torch.as_tensor(batch["actions"], dtype=torch.long, device=self.device)
         rewards = torch.FloatTensor(batch["rewards"]).to(self.device)
         next_states = torch.FloatTensor(batch["next_states"]).to(self.device)
         dones = torch.FloatTensor(batch["dones"]).to(self.device)
 
+        if actions.ndim == 1:
+            actions = actions.unsqueeze(1)
+
+        if actions.shape[1] != self.n_branches:
+            raise ValueError(
+                f"Expected actions with {self.n_branches} branches, got shape {tuple(actions.shape)}"
+            )
+
         # Compute Q(s,a)
-        q_values = self.q_network(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+        q_values = self.q_network(states).gather(2, actions.unsqueeze(-1)).squeeze(-1)
 
         # Compute target Q(s',a') using target network
         with torch.no_grad():
-            next_q_values = self.target_network(next_states).max(dim=1)[0]
-            target_q_values = rewards + self.gamma * next_q_values * (1 - dones)
+            next_q_values = self.target_network(next_states).max(dim=2)[0]
+            target_q_values = rewards.unsqueeze(1) + self.gamma * next_q_values * (1 - dones.unsqueeze(1))
 
         loss = self.loss_fn(q_values, target_q_values)
 
@@ -200,7 +215,20 @@ class DQNPolicy(RLPolicy):
         batch_size: int = 64,
     ) -> Dict:
         """Supervised warm-start on discrete actions via cross-entropy."""
-        valid = (actions >= 0) & (actions < self.action_dim)
+        actions = np.asarray(actions, dtype=np.int64)
+        if actions.ndim == 1:
+            if self.n_branches != 1:
+                raise ValueError(
+                    "DQN warm-start data must provide multi-branch action vectors for this policy."
+                )
+            actions = actions.reshape(-1, 1)
+
+        if actions.shape[1] != self.n_branches:
+            raise ValueError(
+                f"DQN warm-start action dimension mismatch: expected {self.n_branches}, got {actions.shape[1]}"
+            )
+
+        valid = np.all((actions >= 0) & (actions < self.action_dim), axis=1)
         if not np.any(valid):
             raise ValueError("No valid actions available for DQN warm-start.")
 
@@ -226,16 +254,20 @@ class DQNPolicy(RLPolicy):
                 batch_actions = torch.LongTensor(actions[idx]).to(self.device)
 
                 logits = self.q_network(batch_states)
-                loss = loss_fn(logits, batch_actions)
+                branch_losses = [
+                    loss_fn(logits[:, branch, :], batch_actions[:, branch])
+                    for branch in range(self.n_branches)
+                ]
+                loss = torch.stack(branch_losses).mean()
 
                 self.optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.q_network.parameters(), max_norm=1.0)
                 self.optimizer.step()
 
-                preds = logits.argmax(dim=1)
+                preds = logits.argmax(dim=2)
                 epoch_correct += int((preds == batch_actions).sum().item())
-                epoch_count += int(batch_actions.shape[0])
+                epoch_count += int(batch_actions.numel())
                 epoch_loss += float(loss.item()) * int(batch_actions.shape[0])
 
             losses.append(epoch_loss / max(epoch_count, 1))
@@ -275,10 +307,11 @@ class DQNPolicy(RLPolicy):
 class ActorCriticNetwork(nn.Module):
     """Shared Actor-Critic backbone used by A2C and PPO policies."""
 
-    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128):
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128, n_branches: int = 1):
         super().__init__()
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.n_branches = max(1, int(n_branches))
 
         self.shared = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
@@ -287,12 +320,12 @@ class ActorCriticNetwork(nn.Module):
             nn.ReLU(),
         )
 
-        self.actor = nn.Linear(hidden_dim, action_dim)  # policy logits
+        self.actor = nn.Linear(hidden_dim, self.n_branches * action_dim)  # policy logits
         self.critic = nn.Linear(hidden_dim, 1)  # value estimate
 
     def forward(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         x = self.shared(state)
-        action_logits = self.actor(x)
+        action_logits = self.actor(x).view(-1, self.n_branches, self.action_dim)
         value = self.critic(x)
         return action_logits, value
 
@@ -307,6 +340,7 @@ class A2CPolicy(RLPolicy):
         self,
         state_dim: int,
         action_dim: int,
+        n_branches: int = 1,
         hidden_dim: int = 128,
         learning_rate: float = 1e-3,
         gamma: float = 0.99,
@@ -314,22 +348,29 @@ class A2CPolicy(RLPolicy):
     ):
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.n_branches = max(1, int(n_branches))
         self.learning_rate = learning_rate
         self.gamma = gamma
         self.device = torch.device(device)
 
-        self.network = ActorCriticNetwork(state_dim, action_dim, hidden_dim).to(self.device)
+        self.network = ActorCriticNetwork(state_dim, action_dim, hidden_dim, self.n_branches).to(self.device)
         self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
         self.train_step_count = 0
 
-    def select_action(self, state: np.ndarray, training: bool = False) -> Tuple[int, float]:
+    def select_action(self, state: np.ndarray, training: bool = False) -> Tuple[Union[int, np.ndarray], float]:
         """Sample action from policy distribution."""
         state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         with torch.no_grad():
             action_logits, value = self.network(state_t)
-        probs = torch.softmax(action_logits, dim=1)
-        action_dist = torch.distributions.Categorical(probs)
-        action = action_dist.sample().item()
+        probs = torch.softmax(action_logits, dim=2)
+        action_dist = torch.distributions.Categorical(probs=probs)
+        if training:
+            action_t = action_dist.sample()
+        else:
+            action_t = torch.argmax(probs, dim=2)
+        action = action_t.squeeze(0).cpu().numpy().astype(np.int64)
+        if self.n_branches == 1:
+            return int(action[0]), float(value.item())
         return action, float(value.item())
 
     def train_step(self, batch: Dict) -> Dict:
@@ -344,10 +385,18 @@ class A2CPolicy(RLPolicy):
         5. Total loss: actor_loss + critic_loss
         """
         states = torch.FloatTensor(batch["states"]).to(self.device)
-        actions = torch.LongTensor(batch["actions"]).to(self.device)
+        actions = torch.as_tensor(batch["actions"], dtype=torch.long, device=self.device)
         rewards = torch.FloatTensor(batch["rewards"]).to(self.device)
         next_states = torch.FloatTensor(batch["next_states"]).to(self.device)
         dones = torch.FloatTensor(batch["dones"]).to(self.device)
+
+        if actions.ndim == 1:
+            actions = actions.unsqueeze(1)
+
+        if actions.shape[1] != self.n_branches:
+            raise ValueError(
+                f"Expected actions with {self.n_branches} branches, got shape {tuple(actions.shape)}"
+            )
 
         # Forward pass: get action logits and values
         action_logits, values = self.network(states)
@@ -359,8 +408,8 @@ class A2CPolicy(RLPolicy):
         advantages = (target_values - values.squeeze(-1)).detach()
 
         # Actor loss: -log π(a|s) * A(s,a)
-        action_dist = torch.distributions.Categorical(torch.softmax(action_logits, dim=1))
-        log_probs = action_dist.log_prob(actions)
+        action_dist = torch.distributions.Categorical(probs=torch.softmax(action_logits, dim=2))
+        log_probs = action_dist.log_prob(actions).sum(dim=1)
         actor_loss = -(log_probs * advantages).mean()
 
         # Critic loss: MSE(V(s), target_V(s))
@@ -395,7 +444,20 @@ class A2CPolicy(RLPolicy):
         batch_size: int = 64,
     ) -> Dict:
         """Supervised warm-start of actor head using baseline actions."""
-        valid = (actions >= 0) & (actions < self.action_dim)
+        actions = np.asarray(actions, dtype=np.int64)
+        if actions.ndim == 1:
+            if self.n_branches != 1:
+                raise ValueError(
+                    "A2C warm-start data must provide multi-branch action vectors for this policy."
+                )
+            actions = actions.reshape(-1, 1)
+
+        if actions.shape[1] != self.n_branches:
+            raise ValueError(
+                f"A2C warm-start action dimension mismatch: expected {self.n_branches}, got {actions.shape[1]}"
+            )
+
+        valid = np.all((actions >= 0) & (actions < self.action_dim), axis=1)
         if not np.any(valid):
             raise ValueError("No valid actions available for A2C warm-start.")
 
@@ -421,16 +483,20 @@ class A2CPolicy(RLPolicy):
                 batch_actions = torch.LongTensor(actions[idx]).to(self.device)
 
                 action_logits, _ = self.network(batch_states)
-                loss = loss_fn(action_logits, batch_actions)
+                branch_losses = [
+                    loss_fn(action_logits[:, branch, :], batch_actions[:, branch])
+                    for branch in range(self.n_branches)
+                ]
+                loss = torch.stack(branch_losses).mean()
 
                 self.optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=1.0)
                 self.optimizer.step()
 
-                preds = action_logits.argmax(dim=1)
+                preds = action_logits.argmax(dim=2)
                 epoch_correct += int((preds == batch_actions).sum().item())
-                epoch_count += int(batch_actions.shape[0])
+                epoch_count += int(batch_actions.numel())
                 epoch_loss += float(loss.item()) * int(batch_actions.shape[0])
 
             losses.append(epoch_loss / max(epoch_count, 1))
@@ -471,6 +537,7 @@ class PPOPolicy(RLPolicy):
         self,
         state_dim: int,
         action_dim: int,
+        n_branches: int = 1,
         hidden_dim: int = 128,
         learning_rate: float = 3e-4,
         gamma: float = 0.99,
@@ -481,6 +548,7 @@ class PPOPolicy(RLPolicy):
     ):
         self.state_dim = state_dim
         self.action_dim = action_dim
+        self.n_branches = max(1, int(n_branches))
         self.learning_rate = learning_rate
         self.gamma = gamma
         self.clip_epsilon = clip_epsilon
@@ -488,11 +556,11 @@ class PPOPolicy(RLPolicy):
         self.entropy_coef = entropy_coef
         self.device = torch.device(device)
 
-        self.network = ActorCriticNetwork(state_dim, action_dim, hidden_dim).to(self.device)
+        self.network = ActorCriticNetwork(state_dim, action_dim, hidden_dim, self.n_branches).to(self.device)
         self.optimizer = optim.Adam(self.network.parameters(), lr=learning_rate)
         self.train_step_count = 0
 
-    def select_action(self, state: np.ndarray, training: bool = False) -> Tuple[int, float]:
+    def select_action(self, state: np.ndarray, training: bool = False) -> Tuple[Union[int, np.ndarray], float]:
         """
         Select action from policy distribution.
 
@@ -502,22 +570,34 @@ class PPOPolicy(RLPolicy):
         state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         with torch.no_grad():
             action_logits, _ = self.network(state_t)
-            probs = torch.softmax(action_logits, dim=1)
-            dist = torch.distributions.Categorical(probs)
+            probs = torch.softmax(action_logits, dim=2)
+            dist = torch.distributions.Categorical(probs=probs)
             if training:
                 action_t = dist.sample()
             else:
-                action_t = torch.argmax(probs, dim=1)
+                action_t = torch.argmax(probs, dim=2)
             log_prob_t = dist.log_prob(action_t)
 
-        return int(action_t.item()), float(log_prob_t.item())
+        action = action_t.squeeze(0).cpu().numpy().astype(np.int64)
+        log_prob = float(log_prob_t.sum().item())
+        if self.n_branches == 1:
+            return int(action[0]), log_prob
+        return action, log_prob
 
     def train_step(self, batch: Dict) -> Dict:
         states = torch.FloatTensor(batch["states"]).to(self.device)
-        actions = torch.LongTensor(batch["actions"]).to(self.device)
+        actions = torch.as_tensor(batch["actions"], dtype=torch.long, device=self.device)
         rewards = torch.FloatTensor(batch["rewards"]).to(self.device)
         next_states = torch.FloatTensor(batch["next_states"]).to(self.device)
         dones = torch.FloatTensor(batch["dones"]).to(self.device)
+
+        if actions.ndim == 1:
+            actions = actions.unsqueeze(1)
+
+        if actions.shape[1] != self.n_branches:
+            raise ValueError(
+                f"Expected actions with {self.n_branches} branches, got shape {tuple(actions.shape)}"
+            )
 
         # Old log-probs are captured at action time by the controller.
         old_log_probs = batch.get("action_info")
@@ -537,8 +617,8 @@ class PPOPolicy(RLPolicy):
             returns = rewards + self.gamma * next_values * (1 - dones)
             advantages = returns - values
 
-        dist = torch.distributions.Categorical(torch.softmax(action_logits, dim=1))
-        new_log_probs = dist.log_prob(actions)
+        dist = torch.distributions.Categorical(probs=torch.softmax(action_logits, dim=2))
+        new_log_probs = dist.log_prob(actions).sum(dim=1)
 
         if old_log_probs_t is None:
             old_log_probs_t = new_log_probs.detach()
@@ -583,7 +663,20 @@ class PPOPolicy(RLPolicy):
         batch_size: int = 64,
     ) -> Dict:
         """Supervised warm-start of PPO actor head from baseline actions."""
-        valid = (actions >= 0) & (actions < self.action_dim)
+        actions = np.asarray(actions, dtype=np.int64)
+        if actions.ndim == 1:
+            if self.n_branches != 1:
+                raise ValueError(
+                    "PPO warm-start data must provide multi-branch action vectors for this policy."
+                )
+            actions = actions.reshape(-1, 1)
+
+        if actions.shape[1] != self.n_branches:
+            raise ValueError(
+                f"PPO warm-start action dimension mismatch: expected {self.n_branches}, got {actions.shape[1]}"
+            )
+
+        valid = np.all((actions >= 0) & (actions < self.action_dim), axis=1)
         if not np.any(valid):
             raise ValueError("No valid actions available for PPO warm-start.")
 
@@ -609,16 +702,20 @@ class PPOPolicy(RLPolicy):
                 batch_actions = torch.LongTensor(actions[idx]).to(self.device)
 
                 action_logits, _ = self.network(batch_states)
-                loss = loss_fn(action_logits, batch_actions)
+                branch_losses = [
+                    loss_fn(action_logits[:, branch, :], batch_actions[:, branch])
+                    for branch in range(self.n_branches)
+                ]
+                loss = torch.stack(branch_losses).mean()
 
                 self.optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=1.0)
                 self.optimizer.step()
 
-                preds = action_logits.argmax(dim=1)
+                preds = action_logits.argmax(dim=2)
                 epoch_correct += int((preds == batch_actions).sum().item())
-                epoch_count += int(batch_actions.shape[0])
+                epoch_count += int(batch_actions.numel())
                 epoch_loss += float(loss.item()) * int(batch_actions.shape[0])
 
             losses.append(epoch_loss / max(epoch_count, 1))

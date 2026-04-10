@@ -12,6 +12,7 @@ from .controllers import (
     DrlControllerStub,
     RandomController,
     RuleBasedSLAController,
+    RuleBasedDRLHybridController,
     ThresholdHeuristicController,
     StaticController,
     DQNController,
@@ -124,6 +125,8 @@ def _build_controller(config: ExperimentConfig, targets: Dict[str, SliceTarget])
         return StaticController(targets)
     if mode == "rule_based":
         return ThresholdHeuristicController(targets, config.controller)
+    if mode == "rule_based_drl_hybrid":
+        return RuleBasedDRLHybridController(targets, config.controller)
     if mode == "rule_based_sla":
         return RuleBasedSLAController(targets, config.controller)
     if mode == "random":
@@ -285,7 +288,8 @@ def run_experiment(config: ExperimentConfig) -> None:
             state = collector.get_state(step)
             actions = controller.act(state)
             state_vec = state_encoder.encode(state)
-            action_idx = action_decoder.encode_actions(actions)
+            action_vec = action_decoder.encode_actions(actions)
+            action_idx = action_decoder.encode_scalar(action_vec)
             write_rrm_policy_json(config.output.policy_json_path, actions, targets)
 
             collector.on_action(actions, targets, step)
@@ -333,6 +337,7 @@ def run_experiment(config: ExperimentConfig) -> None:
                 "sla_violations": violations,
                 "action_summary": summary,
                 "action_index": action_idx,
+                "action_vector": json.dumps(action_vec.tolist()),
                 "state_vector": json.dumps(state_vec.tolist()),
                 "slice_wide_sla_satisfaction": float(slice_wide_sla_hits / max(len(slice_ids), 1)),
                 "slice_wide_throughput_kbps": float(slice_wide_throughput),

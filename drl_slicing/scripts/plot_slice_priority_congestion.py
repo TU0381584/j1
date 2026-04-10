@@ -42,6 +42,7 @@ def _display_name(controller: str) -> str:
         "a2c": "A2C",
         "a2c_train": "A2C",
         "rule_based": "Rule-Based Baseline",
+        "rule_based_drl_hybrid": "Rule-Based + DRL Hybrid",
         "threshold_heuristic": "Threshold Baseline",
     }
     return names.get(controller, controller)

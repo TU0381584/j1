@@ -1,7 +1,7 @@
 """
 DRL training infrastructure: replay buffer, state encoding, and training loop.
 """
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 from collections import deque
 import numpy as np
 from .types import EnvState, SliceMetrics, SliceAction
@@ -69,9 +69,11 @@ class ActionDecoder:
     """
     Decode discrete action index to slice resource allocation.
     
-    Action space: Cartesian product of min_ratio and max_ratio.
-    Example for 3 slices with 12 ratio options each:
-        action_dim = 3 * (12 * 12) = 432
+    Action space per slice: Cartesian product of min_ratio and max_ratio.
+    This decoder uses a factorized multi-discrete representation where each
+    slice owns one branch with `action_per_slice = ratio_steps * ratio_steps`
+    options. The full joint space remains representable as
+    `flat_action_dim = action_per_slice ** n_slices` for logging/warm-start.
     """
 
     def __init__(
@@ -81,11 +83,14 @@ class ActionDecoder:
     ):
         self.targets = targets
         self.slice_ids = sorted(list(targets.keys()))
+        self.num_slices = len(self.slice_ids)
         self.ratio_steps = ratio_steps
 
         # Build mapping from ratio value to index
         self.ratio_bins = self._build_ratio_bins()
-        self.action_dim = len(self.slice_ids) * (ratio_steps * ratio_steps)
+        self.action_per_slice = ratio_steps * ratio_steps
+        self.action_dim = self.action_per_slice
+        self.flat_action_dim = self.action_per_slice ** max(self.num_slices, 1)
 
     def _build_ratio_bins(self) -> Dict[str, List[int]]:
         """Create discrete ratio bins across all slices."""
@@ -100,19 +105,38 @@ class ActionDecoder:
             bins[slice_id] = {"min": min_bins, "max": max_bins}
         return bins
 
-    def decode(self, action: int) -> Dict[str, Dict[str, int]]:
+    def _decode_scalar_to_vector(self, action: int) -> np.ndarray:
+        """Backward-compatible scalar decode into per-slice action branches."""
+        value = int(action)
+        branches: List[int] = []
+        for _ in self.slice_ids:
+            branches.append(value % self.action_per_slice)
+            value = value // self.action_per_slice
+        return np.array(branches, dtype=np.int64)
+
+    def decode(self, action: Union[int, List[int], np.ndarray]) -> Dict[str, Dict[str, int]]:
         """
-        Convert action index to slice allocation.
+        Convert action branch indices to per-slice allocation.
         
         Returns:
             { slice_id: { 'min_ratio': int, 'max_ratio': int }, ... }
         """
-        action_per_slice = self.action_dim // len(self.slice_ids)
+        if isinstance(action, np.ndarray):
+            action_vector = action.astype(np.int64).reshape(-1)
+        elif isinstance(action, (list, tuple)):
+            action_vector = np.array(action, dtype=np.int64).reshape(-1)
+        else:
+            action_vector = self._decode_scalar_to_vector(int(action))
+
+        if action_vector.shape[0] < self.num_slices:
+            # Pad missing branches with zeros for robustness.
+            padding = np.zeros(self.num_slices - action_vector.shape[0], dtype=np.int64)
+            action_vector = np.concatenate([action_vector, padding], axis=0)
+
         allocation = {}
 
         for i, slice_id in enumerate(self.slice_ids):
-            slice_action = action % action_per_slice
-            action = action // action_per_slice
+            slice_action = int(action_vector[i]) % self.action_per_slice
 
             min_idx = slice_action % self.ratio_steps
             max_idx = slice_action // self.ratio_steps
@@ -137,19 +161,17 @@ class ActionDecoder:
         distances = [abs(bin_value - value) for bin_value in bins]
         return int(np.argmin(distances))
 
-    def encode_allocation(self, allocation: Dict[str, Dict[str, int]]) -> int:
+    def encode_allocation(self, allocation: Dict[str, Dict[str, int]]) -> np.ndarray:
         """
-        Convert per-slice allocation dictionary back to discrete action index.
+        Convert per-slice allocation dictionary to factorized branch indices.
 
         Args:
             allocation: {slice_id: {"min_ratio": int, "max_ratio": int}}
 
         Returns:
-            Discrete action index compatible with `decode`.
+            [n_slices] int64 array compatible with `decode`.
         """
-        action_per_slice = self.ratio_steps * self.ratio_steps
-        action_index = 0
-        multiplier = 1
+        action_indices: List[int] = []
 
         for slice_id in self.slice_ids:
             slice_alloc = allocation.get(slice_id)
@@ -165,13 +187,45 @@ class ActionDecoder:
                 max_idx = self._nearest_bin_index(self.ratio_bins[slice_id]["max"], max_ratio)
 
             slice_action = min_idx + (max_idx * self.ratio_steps)
-            action_index += slice_action * multiplier
-            multiplier *= action_per_slice
+            action_indices.append(int(slice_action))
 
-        return int(action_index)
+        return np.array(action_indices, dtype=np.int64)
 
-    def encode_actions(self, actions: List[SliceAction]) -> int:
-        """Convert list of SliceAction objects to discrete action index."""
+    def flatten_action_vector(self, action_vector: Union[List[int], np.ndarray]) -> int:
+        """Encode factorized branch indices as one scalar (for logging only)."""
+        vec = np.array(action_vector, dtype=np.int64).reshape(-1)
+        if vec.shape[0] < self.num_slices:
+            vec = np.pad(vec, (0, self.num_slices - vec.shape[0]), mode="constant")
+
+        value = 0
+        multiplier = 1
+        for idx in range(self.num_slices):
+            value += int(vec[idx] % self.action_per_slice) * multiplier
+            multiplier *= self.action_per_slice
+        return int(value)
+
+    def decode_to_vector(self, action: Union[int, List[int], np.ndarray]) -> np.ndarray:
+        """Normalize scalar/list/array action formats to [n_slices] int64 vector."""
+        if isinstance(action, np.ndarray):
+            vec = action.astype(np.int64).reshape(-1)
+        elif isinstance(action, (list, tuple)):
+            vec = np.array(action, dtype=np.int64).reshape(-1)
+        else:
+            vec = self._decode_scalar_to_vector(int(action))
+
+        if vec.shape[0] < self.num_slices:
+            vec = np.pad(vec, (0, self.num_slices - vec.shape[0]), mode="constant")
+        elif vec.shape[0] > self.num_slices:
+            vec = vec[: self.num_slices]
+
+        return vec
+
+    def encode_scalar(self, action: Union[int, List[int], np.ndarray]) -> int:
+        """Encode any action format into legacy scalar index (for compatibility only)."""
+        return self.flatten_action_vector(self.decode_to_vector(action))
+
+    def encode_actions(self, actions: List[SliceAction]) -> np.ndarray:
+        """Convert list of SliceAction objects to factorized action vector."""
         allocation = {
             action.slice_id: {"min_ratio": int(action.min_ratio), "max_ratio": int(action.max_ratio)}
             for action in actions
@@ -191,14 +245,15 @@ class ReplayBuffer:
     def add(
         self,
         state: np.ndarray,
-        action: int,
+        action: Union[int, np.ndarray, List[int]],
         reward: float,
         next_state: np.ndarray,
         done: bool,
         action_info: float = None,
     ) -> None:
         """Add transition to buffer."""
-        self.buffer.append((state, action, reward, next_state, done, action_info))
+        action_array = np.atleast_1d(np.asarray(action, dtype=np.int64))
+        self.buffer.append((state, action_array, reward, next_state, done, action_info))
 
     def sample(self, batch_size: int) -> Dict[str, np.ndarray]:
         """Sample random batch from buffer."""
@@ -261,7 +316,7 @@ class DRLTrainer:
     def step(
         self,
         state: EnvState,
-        action: int,
+        action: Union[int, np.ndarray, List[int]],
         reward: float,
         next_state: EnvState,
         done: bool,
