@@ -95,13 +95,10 @@ while IFS=, read -r service_name _container _component imsi _imei _imeisv ki op 
   if [[ -z "$sd" ]]; then
     if [[ "$profile" == "urllc" ]]; then
       sd="000001"
+    elif [[ "$profile" == "mmtc" ]]; then
+      sd="000002"
     else
-      ue_idx="${service_name##*_}"
-      if [[ "$ue_idx" =~ ^[0-9]+$ ]] && (( 10#$ue_idx % 2 == 0 )); then
-        sd="000000"
-      else
-        sd="000002"
-      fi
+      sd="000000"
     fi
   fi
 

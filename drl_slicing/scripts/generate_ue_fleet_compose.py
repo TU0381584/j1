@@ -26,7 +26,16 @@ def _build_numeric_id(base_value: str, offset: int) -> str:
     return f"{value:0{width}d}"
 
 
-def _assign_profiles(ue_count: int, embb_ratio: float, seed: int) -> List[str]:
+def _assign_profiles(ue_count: int, embb_ratio: float, seed: int, profile_mode: str) -> List[str]:
+    if profile_mode == "triad":
+        if ue_count != 3:
+            raise ValueError("--profile-mode triad requires --ue-count 3")
+        # Deterministic one-per-class mapping used for phase-3 precondition runs.
+        return ["embb", "urllc", "mmtc"]
+
+    if profile_mode == "auto" and ue_count == 3:
+        return ["embb", "urllc", "mmtc"]
+
     rng = random.Random(seed)
 
     if ue_count <= 1:
@@ -41,19 +50,23 @@ def _assign_profiles(ue_count: int, embb_ratio: float, seed: int) -> List[str]:
     return profiles
 
 
-def _profile_to_slice(profile: str, ue_index: int) -> Tuple[str, str, str]:
+def _profile_to_slice(profile: str) -> Tuple[str, str, str]:
     """
     Map UE profile to a deterministic S-NSSAI assignment.
 
+    - eMBB  UEs -> SD 000000 (slice 1-0)
     - URLLC UEs -> SD 000001 (slice 1-1)
-    - eMBB UEs  -> split between SD 000000 (slice 1-0) and SD 000002 (slice 1-2)
+    - mMTC  UEs -> SD 000002 (slice 1-2)
     """
     sst = "1"
+    profile = profile.lower()
+    if profile == "embb":
+        return sst, "000000", "1-0"
     if profile == "urllc":
         return sst, "000001", "1-1"
-    if ue_index % 2 == 0:
-        return sst, "000000", "1-0"
-    return sst, "000002", "1-2"
+    if profile == "mmtc":
+        return sst, "000002", "1-2"
+    return sst, "000000", "1-0"
 
 
 def _write_ueransim_compose(
@@ -82,7 +95,7 @@ def _write_ueransim_compose(
         imei = _build_numeric_id(imei_base, i)
         imeisv = _build_numeric_id(imeisv_base, i)
         profile = profiles[i - 1]
-        sst, sd, slice_id = _profile_to_slice(profile, i)
+        sst, sd, slice_id = _profile_to_slice(profile)
 
         records.append(
             {
@@ -184,7 +197,7 @@ def _write_oai_compose(
         imei = _build_numeric_id(imei_base, i)
         imeisv = _build_numeric_id(imeisv_base, i)
         profile = profiles[i - 1]
-        sst, sd, slice_id = _profile_to_slice(profile, i)
+        sst, sd, slice_id = _profile_to_slice(profile)
 
         records.append(
             {
@@ -361,6 +374,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ue-count", type=int, default=100, help="Number of UE containers")
     parser.add_argument("--embb-ratio", type=float, default=0.7, help="Fraction of eMBB UEs")
     parser.add_argument("--random-seed", type=int, default=42, help="Seed for profile assignment")
+    parser.add_argument(
+        "--profile-mode",
+        choices=["auto", "ratio", "triad"],
+        default="auto",
+        help="UE profile assignment mode (auto uses triad for 3 UEs, otherwise embb/urllc ratio)",
+    )
 
     parser.add_argument("--imsi-base", default="001010000100000", help="Base IMSI as integer string")
     parser.add_argument("--imei-base", default="356938035640000", help="Base IMEI as integer string")
@@ -403,7 +422,7 @@ def main() -> int:
     compose_path = Path(args.output_compose).resolve()
     csv_path = Path(args.output_profiles).resolve()
 
-    profiles = _assign_profiles(args.ue_count, args.embb_ratio, args.random_seed)
+    profiles = _assign_profiles(args.ue_count, args.embb_ratio, args.random_seed, args.profile_mode)
     records = _write_compose(
         compose_path=compose_path,
         ue_count=args.ue_count,
@@ -422,11 +441,12 @@ def main() -> int:
     _write_profiles_csv(csv_path, records)
 
     embb_count = sum(1 for record in records if record["profile"] == "embb")
-    urllc_count = len(records) - embb_count
+    urllc_count = sum(1 for record in records if record["profile"] == "urllc")
+    mmtc_count = sum(1 for record in records if record["profile"] == "mmtc")
 
     print(f"Generated compose file: {compose_path}")
     print(f"Generated profile CSV : {csv_path}")
-    print(f"UE count={len(records)} | eMBB={embb_count} | URLLC={urllc_count}")
+    print(f"UE count={len(records)} | eMBB={embb_count} | URLLC={urllc_count} | mMTC={mmtc_count}")
     return 0
 
 
