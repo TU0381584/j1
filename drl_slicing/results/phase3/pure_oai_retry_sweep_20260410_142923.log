@@ -1,0 +1,46 @@
+===== seed=42 dqn=dqn_hybrid_eval_actionfix.pt a2c=a2c_hybrid_eval_actionfix.pt weights=(0.20,0.45,0.35) =====
+running rule_based
+running dqn
+running a2c
+running rule_based_drl_hybrid
+OUT_DIR=results/phase3/pure_oai_retry_4way_20260410_142923
+rule_based_reward=1.643546
+dqn_reward=1.676604
+a2c_reward=1.474550
+hybrid_reward=1.892647
+rule_based_violps=0.333333
+dqn_violps=0.222222
+a2c_violps=0.277778
+hybrid_violps=0.222222
+all_beat_rule=0
+===== seed=123 dqn=dqn_hybrid_eval_actionfix.pt a2c=a2c_hybrid_eval_actionfix.pt weights=(0.20,0.45,0.35) =====
+running rule_based
+running dqn
+running a2c
+running rule_based_drl_hybrid
+OUT_DIR=results/phase3/pure_oai_retry_4way_20260410_143650
+rule_based_reward=1.023102
+dqn_reward=-0.241899
+a2c_reward=1.573316
+hybrid_reward=1.069508
+rule_based_violps=0.444444
+dqn_violps=0.611111
+a2c_violps=0.277778
+hybrid_violps=0.555556
+all_beat_rule=0
+===== seed=256 dqn=dqn_hybrid_eval_actionfix.pt a2c=a2c_hybrid_eval_actionfix.pt weights=(0.20,0.45,0.35) =====
+running rule_based
+running dqn
+running a2c
+running rule_based_drl_hybrid
+OUT_DIR=results/phase3/pure_oai_retry_4way_20260410_144410
+rule_based_reward=-2.253977
+dqn_reward=-0.446332
+a2c_reward=-0.142420
+hybrid_reward=-1.838396
+rule_based_violps=0.888889
+dqn_violps=0.722222
+a2c_violps=0.777778
+hybrid_violps=0.777778
+all_beat_rule=1
+SUCCESS seed=256 dqn=results/offline_checkpoints/dqn_hybrid_eval_actionfix.pt a2c=results/offline_checkpoints/a2c_hybrid_eval_actionfix.pt weights=0.20,0.45,0.35
