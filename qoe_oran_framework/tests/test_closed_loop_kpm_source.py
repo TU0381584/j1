@@ -91,3 +91,38 @@ def test_unknown_gnb_or_slice_in_send_control_is_ignored():
     source = ClosedLoopKpmSource(seed=6, gnb_ids=["g0"], slice_ids=["urllc"])
     source.send_control("unknown-gnb", 1, 1, min_ratio=5, max_ratio=10)  # should not raise
     source.poll()
+
+
+def test_default_gnb_load_multiplier_creates_asymmetry_across_gnbs():
+    source = ClosedLoopKpmSource(seed=7, gnb_ids=["g0", "g1", "g2"], slice_ids=["urllc"])
+    mult = source._gnb_load_multiplier
+    assert mult["g0"] == 1.0  # first gNB pinned, so single-gNB configs are unaffected
+    assert len(set(mult.values())) > 1  # not all identical -> genuine heterogeneity
+
+
+def test_single_gnb_config_unaffected_by_default_asymmetry():
+    source = ClosedLoopKpmSource(seed=8, gnb_ids=["g0"], slice_ids=["urllc"])
+    assert source._gnb_load_multiplier == {"g0": 1.0}
+
+
+def test_explicit_gnb_load_multiplier_is_respected():
+    source = ClosedLoopKpmSource(
+        seed=9, gnb_ids=["g0", "g1"], slice_ids=["urllc"],
+        mean_offered_ratio={"urllc": 0.5}, gnb_load_multiplier={"g0": 1.0, "g1": 2.0},
+        offered_volatility=0.0,
+    )
+    served_g0, _ = _served_and_backlog(source, "g0", "urllc", 1)
+    served_g1, _ = _served_and_backlog(source, "g1", "urllc", 1)
+    # both start unconstrained (ceiling=100), so served == offered on step 1
+    assert served_g1[0] > served_g0[0]
+
+
+def test_asymmetric_load_produces_differing_utilisation_across_gnbs():
+    source = ClosedLoopKpmSource(
+        seed=10, gnb_ids=["g0", "g1"], slice_ids=["urllc"],
+        mean_offered_ratio={"urllc": 0.4}, gnb_load_multiplier={"g0": 0.5, "g1": 1.3},
+        offered_volatility=0.01,
+    )
+    served_g0, _ = _served_and_backlog(source, "g0", "urllc", 15)
+    served_g1, _ = _served_and_backlog(source, "g1", "urllc", 15)
+    assert sum(served_g1[-5:]) > sum(served_g0[-5:])  # g1's higher load shows up in served PRBs

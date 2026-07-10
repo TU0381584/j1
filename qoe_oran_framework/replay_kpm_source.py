@@ -160,6 +160,16 @@ class ClosedLoopKpmSource:
     fresh rnti every poll, as SyntheticKpmSource does) so RANEnv's
     new-RNTI admission-request channel doesn't fire on every single UE
     every step.
+
+    Cross-gNB asymmetry: each gNB's offered demand is `mean_offered_ratio
+    * gnb_load_multiplier[gnb_id]`. Without genuine heterogeneity across
+    gNBs there is nothing for the LB (load-balance) term to actually
+    resolve -- rho would trend near 1.0 regardless of policy quality,
+    which is exactly what an earlier version of this source did (all gNBs
+    given identical demand). If gnb_load_multiplier isn't supplied, one is
+    auto-generated per gNB from `seed` (uniform in [0.6, 1.4], first gNB
+    pinned to 1.0 so single-gNB configs are unaffected) so a caller can't
+    silently end up back in the trivial-LB regime by omission.
     """
 
     def __init__(
@@ -169,6 +179,7 @@ class ClosedLoopKpmSource:
         slice_ids: List[str],
         B: float = 100.0,
         mean_offered_ratio: Optional[Dict[str, float]] = None,
+        gnb_load_multiplier: Optional[Dict[str, float]] = None,
         offered_volatility: float = 0.04,
         ues_per_slice: int = 4,
         backlog_capacity: float = 200.0,
@@ -180,6 +191,7 @@ class ClosedLoopKpmSource:
         self._slice_ids = slice_ids
         self._B = B
         self._mean_offered_ratio = mean_offered_ratio or {s: 0.5 for s in slice_ids}
+        self._gnb_load_multiplier = gnb_load_multiplier or self._default_gnb_load_multiplier(gnb_ids, seed)
         self._offered_volatility = offered_volatility
         self._ues_per_slice = ues_per_slice
         self._backlog_capacity = backlog_capacity
@@ -196,10 +208,18 @@ class ClosedLoopKpmSource:
         for gnb_id in gnb_ids:
             for slice_id in slice_ids:
                 key = (gnb_id, slice_id)
-                self._offered[key] = self._mean_offered_ratio[slice_id] * B
+                self._offered[key] = self._mean_offered_ratio[slice_id] * B * self._gnb_load_multiplier[gnb_id]
                 self._backlog[key] = 0.0
                 self._ceiling_ratio[key] = initial_ceiling_ratio
                 self._ues[key] = [self._next_rnti() for _ in range(ues_per_slice)]
+
+    @staticmethod
+    def _default_gnb_load_multiplier(gnb_ids: List[str], seed: int = 0) -> Dict[str, float]:
+        rng = np.random.RandomState(seed)
+        multipliers: Dict[str, float] = {}
+        for i, gnb_id in enumerate(gnb_ids):
+            multipliers[gnb_id] = 1.0 if i == 0 else float(rng.uniform(0.6, 1.4))
+        return multipliers
 
     def _next_rnti(self) -> int:
         self._rnti_counter += 1
@@ -213,7 +233,7 @@ class ClosedLoopKpmSource:
                 key = (gnb_id, slice_id)
                 sd = _SD_FOR_SLICE[slice_id]
 
-                mean = self._mean_offered_ratio[slice_id] * self._B
+                mean = self._mean_offered_ratio[slice_id] * self._B * self._gnb_load_multiplier[gnb_id]
                 drift = 0.1 * (mean - self._offered[key])
                 noise = self._rng.normal(0.0, self._offered_volatility * self._B)
                 self._offered[key] = max(0.0, self._offered[key] + drift + noise)
