@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Live xApp main loop: KPM in / control out, against a real OAI gNB via
-the o-ran-e2sim bridge + xapp-oai/base-xapp transport (LiveKpmSource).
+its built-in RIC-free E2_AGENT UDP loop (LiveKpmSource).
 
 Evaluation-only by design: loads a frozen checkpoint from offline
 training and does not train live (see Stage Zero plan -- live runs
@@ -59,9 +59,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=256)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--omega-jsonl", required=True)
-    parser.add_argument("--sub-port", type=int, default=7001)
-    parser.add_argument("--control-port", type=int, default=4200)
-    parser.add_argument("--connect-timeout-s", type=float, default=60.0)
+    parser.add_argument("--xapp-listen-port", type=int, default=6600)
+    parser.add_argument("--gnb-listen-port", type=int, default=6655)
+    parser.add_argument("--recv-timeout-s", type=float, default=30.0)
     args = parser.parse_args()
 
     if args.algorithm != "lb_only" and not args.checkpoint:
@@ -82,12 +82,12 @@ def main() -> None:
         policy.load_checkpoint(args.checkpoint)
 
     kpm_source = LiveKpmSource(
-        gnb_id=args.gnb_id, sub_port=args.sub_port, control_port=args.control_port,
-        connect_timeout_s=args.connect_timeout_s,
+        gnb_id=args.gnb_id, xapp_listen_port=args.xapp_listen_port, gnb_listen_port=args.gnb_listen_port,
+        recv_timeout_s=args.recv_timeout_s,
     )
     env = RANEnv(cfg, kpm_source, seed=args.seed)
 
-    print(f"[{args.run_id}] waiting for E2/bridge connection on control port {args.control_port}...", file=sys.stderr)
+    print(f"[{args.run_id}] talking to gNB E2 agent (listen={args.xapp_listen_port}, gNB={args.gnb_listen_port})...", file=sys.stderr)
     try:
         with OmegaLogger(args.omega_jsonl) as omega:
             summary = run_single(
