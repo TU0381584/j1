@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Companion teardown for run_saclb_live_testbed.sh. Mirrors
-# drl_slicing/scripts/stop_oran_live_testbed_xapps.sh's pattern. Does NOT
-# stop the natively-run nr-softmodem gNB -- that was started manually
-# (under sudo, in another terminal) and must be stopped the same way
-# (Ctrl+C there, or `sudo pkill -f nr-softmodem` if you started it
-# detached).
+# drl_slicing/scripts/stop_oran_live_testbed_xapps.sh's pattern, plus
+# stopping the natively-run nr-softmodem gNB via the pid file
+# run_saclb_live_testbed.sh writes to results/live/gnb_nr-softmodem.pid.
 
 set -euo pipefail
 
@@ -12,6 +10,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 DRL_DIR="$ROOT_DIR/drl_slicing"
 DOCKER_DIR="$ROOT_DIR/docker_open5gs"
 GEN_DIR="$DOCKER_DIR/generated"
+RESULTS_DIR="$ROOT_DIR/qoe_oran_framework/results/live"
 
 KEEP_CORE=0
 DRY_RUN=0
@@ -39,14 +38,24 @@ run_cmd() {
 
 echo "Stopping Stage Zero live testbed"
 
-echo "[1/3] Stop UE traffic loops"
+echo "[1/4] Stop native gNB"
+GNB_PID_FILE="$RESULTS_DIR/gnb_nr-softmodem.pid"
+if [[ -f "$GNB_PID_FILE" ]]; then
+  gnb_pid="$(cat "$GNB_PID_FILE")"
+  run_cmd "kill -TERM '$gnb_pid' >/dev/null 2>&1 || true"
+  run_cmd "rm -f '$GNB_PID_FILE'"
+else
+  echo "No gNB pid file at $GNB_PID_FILE -- nothing to stop"
+fi
+
+echo "[2/4] Stop UE traffic loops"
 run_cmd "cd '$DRL_DIR' && bash scripts/stop_ue_traffic_profiles.sh --profiles '$GEN_DIR/ue_fleet_profiles.csv' || true"
 
-echo "[2/3] Stop generated UE fleet"
+echo "[3/4] Stop generated UE fleet"
 run_cmd "cd '$DOCKER_DIR' && docker compose -f '$GEN_DIR/nr-ue-fleet.yaml' down >/dev/null 2>&1 || true"
 run_cmd "docker ps -a --format '{{.Names}}' | grep '^nr_ue_' | xargs -r docker rm -f >/dev/null 2>&1 || true"
 
-echo "[3/3] Stop Open5GS core"
+echo "[4/4] Stop Open5GS core"
 if [[ "$KEEP_CORE" -eq 1 ]]; then
   echo "Keeping Open5GS core running (--keep-core set)"
 else
@@ -54,5 +63,3 @@ else
 fi
 
 echo "Stop sequence complete."
-echo "Remember: the natively-run nr-softmodem gNB (started manually under"
-echo "sudo) is NOT stopped by this script -- stop it in its own terminal."

@@ -6,19 +6,18 @@
 # generic (non-algorithm-specific) helper scripts directly rather than
 # duplicating them.
 #
-# Two required differences from that script, both because this run goes
-# through the real E2 loop instead of the file-write rrmPolicy.json path:
-#   1. The gNB MUST be OAI's natively-built nr-softmodem (oai_ran, built
-#      via cmake_targets/build_oai) -- NOT the oaignb.yaml Docker service,
-#      which clones vanilla upstream OAI without the E2_AGENT/protobuf-c
-#      code this live loop depends on (confirmed by source inspection).
-#   2. Running nr-softmodem requires root (per this repo's own README:
-#      `sudo ./nr-softmodem ...`) and this environment has no passwordless
-#      sudo available to automate that step -- so this script starts
-#      everything it safely can (Open5GS core, UE fleet) and then PAUSES
-#      with the exact command to run manually in another terminal, rather
-#      than silently failing or attempting to smuggle a sudo password.
-#      xApp startup only proceeds after you confirm the gNB is up.
+# One required difference from that script, because this run goes through
+# the real E2 loop instead of the file-write rrmPolicy.json path: the gNB
+# MUST be OAI's natively-built nr-softmodem (oai_ran, built via
+# cmake_targets/build_oai) -- NOT the oaignb.yaml Docker service, which
+# clones vanilla upstream OAI without the E2_AGENT/protobuf-c code this
+# live loop depends on (confirmed by source inspection). This script
+# starts it itself in the background. The README documents running it
+# under sudo (presumably a real-hardware-USRP default); empirically, in
+# --rfsim mode it runs fine unprivileged -- confirmed by an interactive
+# run that reached "ALL gNBs ready" and printed live "[E2_AGENT] E2 agent
+# heartbeat" lines with no elevated permissions, and a real LiveKpmSource
+# poll()/send_control() round-trip against it succeeded.
 #
 # Usage:
 #   ./run_saclb_live_testbed.sh --algorithm dqn \
@@ -107,40 +106,42 @@ echo "  Run ID       : $RUN_ID"
 echo "  Config       : $CONFIG"
 echo "  gNB binary   : $NR_SOFTMODEM"
 
+GNB_LOG="$RESULTS_DIR/gnb_nr-softmodem.log"
+GNB_PID_FILE="$RESULTS_DIR/gnb_nr-softmodem.pid"
+
 echo ""
-echo "[1/6] Generate UE fleet compose + profiles"
+echo "[1/7] Generate UE fleet compose + profiles"
 run_cmd "cd '$DRL_DIR' && /usr/bin/python3 scripts/generate_ue_fleet_compose.py --ue-count '$UE_COUNT' --embb-ratio '$EMBB_RATIO' --random-seed '$RANDOM_SEED' --profile-mode '$PROFILE_MODE' --output-compose '$UE_COMPOSE_FILE' --output-profiles '$UE_PROFILE_CSV' --ue-stack ueransim"
 
-echo "[2/6] Start Open5GS core + metrics"
+echo "[2/7] Start Open5GS core + metrics"
 run_cmd "cd '$DOCKER_DIR' && docker compose -f sa-deploy.yaml up -d"
 
-echo "[3/6] Provision UE subscribers"
+echo "[3/7] Start native OAI gNB (E2_AGENT built in, confirmed no root required for rfsim)"
+mkdir -p "$RESULTS_DIR"
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "[DRY-RUN] cd '$OAI_RAN_DIR/cmake_targets/ran_build/build' && nohup '$NR_SOFTMODEM' -O '$GNB_CONF' --sa --rfsim > '$GNB_LOG' 2>&1 &"
+else
+  ( cd "$OAI_RAN_DIR/cmake_targets/ran_build/build" && nohup "$NR_SOFTMODEM" -O "$GNB_CONF" --sa --rfsim > "$GNB_LOG" 2>&1 & echo $! > "$GNB_PID_FILE" )
+  sleep 5
+  if ! kill -0 "$(cat "$GNB_PID_FILE")" 2>/dev/null; then
+    echo "gNB process died immediately -- check $GNB_LOG"
+    exit 1
+  fi
+  echo "gNB started, pid $(cat "$GNB_PID_FILE"), log: $GNB_LOG"
+fi
+
+echo "[4/7] Provision UE subscribers"
 run_cmd "cd '$DRL_DIR' && bash scripts/provision_open5gs_subscribers.sh --profiles '$UE_PROFILE_CSV' --core-container '$CORE_CONTAINER'"
 
-echo "[4/6] Start UE fleet containers"
+echo "[5/7] Start UE fleet containers"
 run_cmd "cd '$DOCKER_DIR' && docker compose -f '$UE_COMPOSE_FILE' up -d"
 
-echo "[5/6] Start profile-based traffic loops (eMBB/URLLC/mMTC)"
+echo "[6/7] Start profile-based traffic loops (eMBB/URLLC/mMTC)"
 run_cmd "cd '$DRL_DIR' && bash scripts/start_ue_traffic_profiles.sh --profiles '$UE_PROFILE_CSV' --target-ip '$TRAFFIC_TARGET_IP'"
 
-echo ""
-echo "=========================================================================="
-echo "[6/6] MANUAL STEP REQUIRED: start the native OAI gNB with the E2 agent."
-echo ""
-echo "This machine has no passwordless sudo, and nr-softmodem needs root for"
-echo "RF-simulator raw sockets -- this cannot be automated from here. In"
-echo "ANOTHER terminal, run:"
-echo ""
-echo "  cd '$OAI_RAN_DIR/cmake_targets/ran_build/build'"
-echo "  sudo '$NR_SOFTMODEM' -O '$GNB_CONF' --sa --rfsim"
-echo ""
-echo "Wait until you see the gNB report it's ready (RRC/NGAP connected to the"
-echo "core), THEN come back here and press Enter to continue starting the xApp."
-echo "=========================================================================="
+echo "[7/7] Wait for UE sessions to stabilize"
 if [[ "$DRY_RUN" -eq 0 ]]; then
-  read -r -p "Press Enter once the gNB is running... " _
-else
-  echo "[DRY-RUN] would wait for Enter here"
+  sleep 15
 fi
 
 mkdir -p "$RESULTS_DIR/$ALGORITHM"
@@ -158,4 +159,3 @@ echo ""
 echo "Live run complete. Omega log: $OMEGA_PATH"
 echo "To stop the testbed cleanly:"
 echo "  $QOE_DIR/scripts/stop_saclb_live_testbed.sh"
-echo "  (and Ctrl+C / stop the manually-started nr-softmodem process)"
