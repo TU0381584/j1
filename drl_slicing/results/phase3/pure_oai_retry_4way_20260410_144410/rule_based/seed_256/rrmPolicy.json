@@ -1,0 +1,25 @@
+{
+  "rrmPolicyRatio": [
+    {
+      "sst": 1,
+      "dedicated_ratio": 5,
+      "min_ratio": 20,
+      "max_ratio": 57,
+      "sd": 0
+    },
+    {
+      "sst": 1,
+      "dedicated_ratio": 5,
+      "min_ratio": 23,
+      "max_ratio": 60,
+      "sd": 1
+    },
+    {
+      "sst": 1,
+      "dedicated_ratio": 5,
+      "min_ratio": 27,
+      "max_ratio": 64,
+      "sd": 2
+    }
+  ]
+}

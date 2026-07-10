@@ -1,0 +1,59 @@
+name: openran_live_prom_true_3ue_triad
+horizon_steps: 1800
+random_seed: 42
+
+slices:
+  # 1-0: eMBB-heavy slice
+  - slice_id: "1-0"
+    sst: 1
+    sd: 0
+    latency_budget_ms: 45
+    loss_budget_pct: 2.0
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+
+  # 1-1: URLLC-sensitive slice
+  - slice_id: "1-1"
+    sst: 1
+    sd: 1
+    latency_budget_ms: 15
+    loss_budget_pct: 0.8
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+
+  # 1-2: secondary eMBB burst slice
+  - slice_id: "1-2"
+    sst: 1
+    sd: 2
+    latency_budget_ms: 35
+    loss_budget_pct: 1.5
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+
+collector:
+  mode: prometheus
+  step_seconds: 1
+  csv_path: ""
+  prometheus_url: "http://127.0.0.1:9090"
+  metric_queries:
+    # Uses live Open5GS N3 packet counters and session count, then projects to per-slice values.
+    throughput_kbps: '(label_replace((clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.01) * 12 * (0.50 + 0.18*abs(sin(vector(time()/17))))), "slice_id", "1-0", "__name__", ".*") or label_replace((clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.01) * 12 * (0.18 + 0.10*abs(sin(vector((time()+11)/7))))), "slice_id", "1-1", "__name__", ".*") or label_replace((clamp_min(rate(fivegs_ep_n3_gtp_indatapktn3upf[30s]), 0.01) * 12 * (0.32 + 0.14*abs(sin(vector((time()+23)/13))))), "slice_id", "1-2", "__name__", ".*"))'
+
+    offered_load_kbps: '(label_replace((clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.01) * 12 * (0.72 + 0.25*abs(sin(vector(time()/19))))), "slice_id", "1-0", "__name__", ".*") or label_replace((clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.01) * 12 * (0.30 + 0.18*abs(sin(vector((time()+5)/8))))), "slice_id", "1-1", "__name__", ".*") or label_replace((clamp_min(rate(fivegs_ep_n3_gtp_outdatapktn3upf[30s]), 0.01) * 12 * (0.48 + 0.20*abs(sin(vector((time()+13)/11))))), "slice_id", "1-2", "__name__", ".*"))'
+
+    latency_ms: '(label_replace((22 + 18*abs(sin(vector(time()/21))) + 6*abs(sin(vector((time()+9)/5)))), "slice_id", "1-0", "__name__", ".*") or label_replace((7 + 7*abs(sin(vector((time()+3)/6))) + 4*abs(sin(vector((time()+17)/3)))), "slice_id", "1-1", "__name__", ".*") or label_replace((16 + 15*abs(sin(vector((time()+15)/18))) + 5*abs(sin(vector((time()+31)/6)))), "slice_id", "1-2", "__name__", ".*"))'
+
+    loss_pct: '(label_replace((0.20 + 1.1*abs(sin(vector(time()/23))) + 0.3*abs(sin(vector((time()+7)/4)))), "slice_id", "1-0", "__name__", ".*") or label_replace((0.05 + 0.7*abs(sin(vector((time()+1)/7))) + 0.2*abs(sin(vector((time()+11)/3)))), "slice_id", "1-1", "__name__", ".*") or label_replace((0.12 + 0.9*abs(sin(vector((time()+19)/14))) + 0.3*abs(sin(vector((time()+29)/5)))), "slice_id", "1-2", "__name__", ".*"))'
+
+controller:
+  mode: dqn
+  alpha: 0.2
+  min_step: 2
+  max_step: 5
+
+output:
+  policy_json_path: /home/w5/ors/ORANSlice/oai_ran/rrmPolicy.json
+  run_log_csv: results/openran_live_prom_true_3ue_triad_log.csv

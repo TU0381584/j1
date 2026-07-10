@@ -27,17 +27,23 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 if [[ -z "$COMPONENT_NAME" ]]; then
-	echo "Error: COMPONENT_NAME environment variable not set"; exit 1;
-elif [[ "$COMPONENT_NAME" =~ ^(ueransim-gnb-[[:digit:]]+$) ]]; then
-	echo "Deploying component: '$COMPONENT_NAME'"
-	/mnt/ueransim/open5gs_gnb_init.sh && \
-	./nr-gnb -c ../config/open5gs-gnb.yaml & \
-	bash
-elif [[ "$COMPONENT_NAME" =~ ^(ueransim-ue-[[:digit:]]+$) ]]; then
-	echo "Deploying component: '$COMPONENT_NAME'"
-	/mnt/ueransim/open5gs_ue_init.sh && \
-	./nr-ue -c ../config/open5gs-ue.yaml & \
-	bash
-else
-	echo "Error: Invalid component name: '$COMPONENT_NAME'"
+	echo "Error: COMPONENT_NAME environment variable not set"
+	exit 1
 fi
+
+case "$COMPONENT_NAME" in
+	ueransim-gnb-*|ueransim-gnb)
+		echo "Deploying component: '$COMPONENT_NAME'"
+		/mnt/ueransim/open5gs_gnb_init.sh
+		exec ./nr-gnb -c ../config/open5gs-gnb.yaml
+		;;
+	ueransim-ue-*|ueransim-ue)
+		echo "Deploying component: '$COMPONENT_NAME'"
+		/mnt/ueransim/open5gs_ue_init.sh
+		exec ./nr-ue -c ../config/open5gs-ue.yaml
+		;;
+	*)
+		echo "Error: Invalid component name: '$COMPONENT_NAME'"
+		exit 1
+		;;
+esac

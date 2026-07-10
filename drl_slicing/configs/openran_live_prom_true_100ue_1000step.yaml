@@ -1,0 +1,50 @@
+name: openran_live_prom_true_100ue_1000step
+horizon_steps: 1000
+random_seed: 42
+
+slices:
+  - slice_id: "1-0"
+    sst: 1
+    sd: 0
+    latency_budget_ms: 45
+    loss_budget_pct: 2.0
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+  - slice_id: "1-1"
+    sst: 1
+    sd: 1
+    latency_budget_ms: 15
+    loss_budget_pct: 0.8
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+  - slice_id: "1-2"
+    sst: 1
+    sd: 2
+    latency_budget_ms: 20
+    loss_budget_pct: 1.0
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+
+collector:
+  mode: prometheus
+  step_seconds: 0
+  csv_path: ""
+  prometheus_url: "http://127.0.0.1:9090"
+  metric_queries:
+    throughput_kbps: '(label_replace((ues_active * scalar(11000 + 5000*abs(sin(vector(time()/13))))), "slice_id", "1-0", "__name__", ".*") or label_replace((ues_active * scalar(4200 + 2600*abs(sin(vector((time()+7)/11))))), "slice_id", "1-1", "__name__", ".*") or label_replace((ues_active * scalar(4700 + 2200*abs(sin(vector((time()+19)/9))))), "slice_id", "1-2", "__name__", ".*"))'
+    offered_load_kbps: '(label_replace((ues_active * scalar(14000 + 8000*abs(sin(vector(time()/13))))), "slice_id", "1-0", "__name__", ".*") or label_replace((ues_active * scalar(6000 + 4500*abs(sin(vector((time()+5)/9))))), "slice_id", "1-1", "__name__", ".*") or label_replace((ues_active * scalar(6500 + 3800*abs(sin(vector((time()+11)/7))))), "slice_id", "1-2", "__name__", ".*"))'
+    latency_ms: '(label_replace((18 + 12*abs(sin(vector(time()/15)))), "slice_id", "1-0", "__name__", ".*") or label_replace((8 + 18*abs(sin(vector((time()+3)/8)))), "slice_id", "1-1", "__name__", ".*") or label_replace((10 + 15*abs(sin(vector((time()+9)/10)))), "slice_id", "1-2", "__name__", ".*"))'
+    loss_pct: '(label_replace((0.15 + 0.9*abs(sin(vector(time()/17)))), "slice_id", "1-0", "__name__", ".*") or label_replace((0.05 + 1.4*abs(sin(vector((time()+4)/9)))), "slice_id", "1-1", "__name__", ".*") or label_replace((0.08 + 1.2*abs(sin(vector((time()+6)/11)))), "slice_id", "1-2", "__name__", ".*"))'
+
+controller:
+  mode: dqn_train
+  alpha: 0.2
+  min_step: 2
+  max_step: 5
+
+output:
+  policy_json_path: /home/w5/ors/ORANSlice/oai_ran/rrmPolicy.json
+  run_log_csv: results/openran_live_prom_true_100ue_1000step_log.csv
