@@ -60,14 +60,21 @@ class ReplayKpmSource:
 
 
 class SyntheticKpmSource:
-    """Deterministic (seeded) procedural KPM feed for offline dev/testing
-    and offline training, requiring no hand-authored fixture file.
+    """Deterministic (seeded) procedural KPM feed for offline dev/testing,
+    requiring no hand-authored fixture file.
 
-    Traffic per slice is generated as a Poisson-ish UE-count process with a
-    configurable mean utilisation per gNB; PRB demand per UE is sampled
-    around a per-slice nominal value. This is a modelling choice for
-    Stage Zero's offline-training leg only -- never used for the live
-    acceptance-bar numbers, which come exclusively from LiveKpmSource.
+    IMPORTANT LIMITATION, confirmed by inspection: this source is
+    open-loop. poll() samples PRB demand, queue backlog, and loss
+    independently every call; send_control() is recorded but never fed
+    back into future poll() output. That means admission (accept/reject)
+    decisions have literally no effect on future state here, only on the
+    step's block-count and service-reward terms -- so "always accept" is
+    trivially reward-optimal in this source, and training against it only
+    validates the training *loop* (replay buffers, checkpointing, logging),
+    not learned SLA-tradeoff behaviour. Use ClosedLoopKpmSource (below) for
+    any offline run whose numbers you intend to treat as meaningful; keep
+    this one only for fast unit tests / wiring smoke checks that don't
+    depend on genuine admission-demand feedback.
     """
 
     def __init__(
@@ -117,6 +124,141 @@ class SyntheticKpmSource:
         self.sent_controls.append(
             {"gnb_id": gnb_id, "sst": sst, "sd": sd, "min_ratio": min_ratio, "max_ratio": max_ratio}
         )
+
+    def close(self) -> None:
+        pass
+
+
+_SD_FOR_SLICE = {"embb": 0, "urllc": 1, "mmtc": 2}
+_SD_FOR_SLICE_REVERSE = {v: k for k, v in _SD_FOR_SLICE.items()}
+
+
+class ClosedLoopKpmSource:
+    """Closed-loop synthetic KPM feed: served PRBs are capped by the
+    admission ceiling most recently set via send_control(), and unmet
+    demand accumulates as persistent queue backlog rather than vanishing --
+    so admission decisions have a real, delayed cost/benefit an agent can
+    actually learn from. This is the fix for the gap SyntheticKpmSource
+    (above) has: there, demand is independent of admission, so accepting
+    is costless and "learning" converges trivially.
+
+    Model per (gNB, slice), each poll():
+      1. offered demand follows a mean-reverting random walk (exogenous --
+         NOT policy-driven; this is the incoming traffic the network can't
+         control, matching a real cell's arrival process)
+      2. served = min(offered + carried-over backlog, ceiling_prb), where
+         ceiling_prb is derived from the *last* max_ratio sent via
+         send_control() (default: unconstrained at B, i.e. only the
+         slice's own quota cap applies, until the agent's first decision)
+      3. unmet demand carries forward as backlog (-> reported via
+         dl_mac_buffer_occupation, which is exactly the state's L_k(t) and
+         the reward's queue-based SLA-violation signal)
+      4. loss (dl_bler/dl_errors) scales with backlog fraction, so
+         congestion also shows up on the loss-budget violation channel
+
+    A persistent, slowly-churning UE population is used (rather than a
+    fresh rnti every poll, as SyntheticKpmSource does) so RANEnv's
+    new-RNTI admission-request channel doesn't fire on every single UE
+    every step.
+    """
+
+    def __init__(
+        self,
+        seed: int,
+        gnb_ids: List[str],
+        slice_ids: List[str],
+        B: float = 100.0,
+        mean_offered_ratio: Optional[Dict[str, float]] = None,
+        offered_volatility: float = 0.04,
+        ues_per_slice: int = 4,
+        backlog_capacity: float = 200.0,
+        churn_prob: float = 0.05,
+        initial_ceiling_ratio: float = 100.0,
+    ):
+        self._rng = np.random.RandomState(seed)
+        self._gnb_ids = gnb_ids
+        self._slice_ids = slice_ids
+        self._B = B
+        self._mean_offered_ratio = mean_offered_ratio or {s: 0.5 for s in slice_ids}
+        self._offered_volatility = offered_volatility
+        self._ues_per_slice = ues_per_slice
+        self._backlog_capacity = backlog_capacity
+        self._churn_prob = churn_prob
+
+        self._offered: Dict[tuple, float] = {}
+        self._backlog: Dict[tuple, float] = {}
+        self._ceiling_ratio: Dict[tuple, float] = {}
+        self._ues: Dict[tuple, List[int]] = {}
+        self._rnti_counter = 0
+        self._t = 0.0
+        self.sent_controls: List[Dict[str, Any]] = []
+
+        for gnb_id in gnb_ids:
+            for slice_id in slice_ids:
+                key = (gnb_id, slice_id)
+                self._offered[key] = self._mean_offered_ratio[slice_id] * B
+                self._backlog[key] = 0.0
+                self._ceiling_ratio[key] = initial_ceiling_ratio
+                self._ues[key] = [self._next_rnti() for _ in range(ues_per_slice)]
+
+    def _next_rnti(self) -> int:
+        self._rnti_counter += 1
+        return self._rnti_counter
+
+    def poll(self) -> List[UeSample]:
+        self._t += 1.0
+        samples: List[UeSample] = []
+        for gnb_id in self._gnb_ids:
+            for slice_id in self._slice_ids:
+                key = (gnb_id, slice_id)
+                sd = _SD_FOR_SLICE[slice_id]
+
+                mean = self._mean_offered_ratio[slice_id] * self._B
+                drift = 0.1 * (mean - self._offered[key])
+                noise = self._rng.normal(0.0, self._offered_volatility * self._B)
+                self._offered[key] = max(0.0, self._offered[key] + drift + noise)
+                offered = self._offered[key]
+
+                ceiling_prb = self._ceiling_ratio[key] / 100.0 * self._B
+                demand = offered + self._backlog[key]
+                served = min(demand, ceiling_prb)
+                unmet = max(0.0, demand - served)
+                self._backlog[key] = min(self._backlog_capacity, unmet)
+
+                if self._rng.rand() < self._churn_prob and self._ues[key]:
+                    idx = self._rng.randint(0, len(self._ues[key]))
+                    self._ues[key][idx] = self._next_rnti()
+
+                n_ues = max(1, len(self._ues[key]))
+                per_ue_served = served / n_ues
+                backlog_frac = self._backlog[key] / max(self._backlog_capacity, 1e-6)
+                bler = max(0.0, min(1.0, 0.02 + 0.3 * backlog_frac))
+
+                for rnti in self._ues[key]:
+                    samples.append(
+                        UeSample(
+                            rnti=rnti,
+                            timestamp_s=self._t,
+                            nssai_sst=1,
+                            nssai_sd=sd,
+                            avg_prbs_dl=per_ue_served,
+                            gnb_id=gnb_id,
+                            dl_total_bytes=per_ue_served * 1000.0,
+                            dl_errors=bler * 2.0,
+                            dl_bler=bler,
+                            dl_mac_buffer_occupation=self._backlog[key] / n_ues,
+                        )
+                    )
+        return samples
+
+    def send_control(self, gnb_id: str, sst: int, sd: int, min_ratio: int, max_ratio: int) -> None:
+        self.sent_controls.append(
+            {"gnb_id": gnb_id, "sst": sst, "sd": sd, "min_ratio": min_ratio, "max_ratio": max_ratio}
+        )
+        slice_id = _SD_FOR_SLICE_REVERSE.get(int(sd))
+        key = (gnb_id, slice_id)
+        if key in self._ceiling_ratio:
+            self._ceiling_ratio[key] = float(max_ratio)
 
     def close(self) -> None:
         pass
