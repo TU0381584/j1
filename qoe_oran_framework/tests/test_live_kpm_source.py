@@ -1,5 +1,5 @@
-"""End-to-end transport tests against a real loopback TCP/UDP pair (a
-fake E2/bridge peer run in a background thread) -- no live gNB needed to
+"""End-to-end transport tests against a real loopback UDP pair (a fake
+gNB E2_AGENT peer run in a background thread) -- no real gNB needed to
 verify the wire protocol itself is correct."""
 
 import os
@@ -27,8 +27,8 @@ if _proto_dir not in sys.path:
     sys.path.insert(0, _proto_dir)
 import ran_messages_pb2  # noqa: E402
 
-SUB_PORT = 27001
-CONTROL_PORT = 24200
+XAPP_LISTEN_PORT = 26600
+GNB_LISTEN_PORT = 26655
 
 
 def test_build_indication_request_shape():
@@ -47,6 +47,16 @@ def test_build_control_request_round_trips_fields():
     msg.ParseFromString(buf)
     slicing = msg.ran_control_request.target_param_map[0].slicing_ctrl
     assert (slicing.sst, slicing.sd, slicing.min_ratio, slicing.max_ratio) == (1, 1, 5, 30)
+
+
+def test_never_builds_a_subscription_message():
+    """Sending a SUBSCRIPTION-type message crashes the real gNB
+    (handle_subscription() is assert(0!=0) in e2_message_handlers.c) --
+    this module must only ever emit INDICATION_REQUEST or CONTROL."""
+    for buf in (build_indication_request(), build_control_request(1, 1, 5, 30)):
+        msg = ran_messages_pb2.RAN_message()
+        msg.ParseFromString(buf)
+        assert msg.msg_type != ran_messages_pb2.RAN_message_type.SUBSCRIPTION
 
 
 def test_parse_indication_response_extracts_ue_samples():
@@ -71,20 +81,20 @@ def test_parse_indication_response_extracts_ue_samples():
     assert samples[0].nssai_sd == 1
 
 
-def _fake_bridge(sub_socket_ready, received_subscription, control_connected, sent_response, received_control):
-    """Simulates the E2/bridge peer: receives the UDP subscription, then
-    connects as a TCP client to the xApp's control port, sends one
-    fabricated indication, and reads back one control message."""
-    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp.bind(("127.0.0.1", SUB_PORT))
-    sub_socket_ready.set()
-    data, _addr = udp.recvfrom(4096)
-    udp.close()
-    received_subscription["data"] = data
+def _fake_gnb_agent(ready, received_first_request, stop_event, received_control):
+    """Simulates OAI's E2_AGENT: binds the gNB's listen port, replies to
+    the first INDICATION_REQUEST with one fabricated UE, then captures the
+    next datagram (expected to be a CONTROL message) and stops -- mirrors
+    e2_agent_app.c's request/response (not subscribe/stream) behaviour."""
+    gnb_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    gnb_sock.bind(("127.0.0.1", GNB_LISTEN_PORT))
+    gnb_sock.settimeout(5.0)
+    ready.set()
 
-    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp.connect(("127.0.0.1", CONTROL_PORT))
-    control_connected.set()
+    reply_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    data, _addr = gnb_sock.recvfrom(4096)
+    received_first_request["data"] = data
 
     resp = ran_messages_pb2.RAN_indication_response()
     entry = resp.param_map.add()
@@ -95,56 +105,63 @@ def _fake_bridge(sub_socket_ready, received_subscription, control_connected, sen
     ue.avg_prbs_dl = 4.0
     ue.nssai_sST = 1
     ue.nssai_sD = 1
-    tcp.send(resp.SerializeToString())
-    sent_response.set()
+    reply_sock.sendto(resp.SerializeToString(), ("127.0.0.1", XAPP_LISTEN_PORT))
 
-    control_data = tcp.recv(4096)
+    control_data, _addr = gnb_sock.recvfrom(4096)
     received_control["data"] = control_data
-    tcp.close()
+    stop_event.set()
+    gnb_sock.close()
+    reply_sock.close()
 
 
 def test_live_kpm_source_end_to_end_over_loopback():
-    sub_socket_ready = threading.Event()
-    control_connected = threading.Event()
-    sent_response = threading.Event()
-    received_subscription = {}
+    ready = threading.Event()
+    stop_event = threading.Event()
+    received_first_request = {}
     received_control = {}
 
-    bridge = threading.Thread(
-        target=_fake_bridge,
-        args=(sub_socket_ready, received_subscription, control_connected, sent_response, received_control),
+    agent = threading.Thread(
+        target=_fake_gnb_agent,
+        args=(ready, received_first_request, stop_event, received_control),
         daemon=True,
     )
-    bridge.start()
-    assert sub_socket_ready.wait(timeout=5)
+    agent.start()
+    assert ready.wait(timeout=5)
 
     source = LiveKpmSource(
-        gnb_id="gnb-0", sub_port=SUB_PORT, control_port=CONTROL_PORT, connect_timeout_s=5.0,
+        gnb_id="gnb-0", xapp_listen_port=XAPP_LISTEN_PORT, gnb_listen_port=GNB_LISTEN_PORT,
+        recv_timeout_s=5.0,
     )
-    samples = source.poll()  # triggers subscription + blocks for the bridge's TCP connect + first message
+    samples = source.poll()
 
-    assert control_connected.wait(timeout=5)
-    assert sent_response.wait(timeout=5)
     assert len(samples) == 1
     assert samples[0].rnti == 7
     assert samples[0].avg_prbs_dl == pytest.approx(4.0)
     assert samples[0].gnb_id == "gnb-0"
 
+    req_msg = ran_messages_pb2.RAN_message()
+    req_msg.ParseFromString(received_first_request["data"])
+    assert req_msg.msg_type == ran_messages_pb2.RAN_message_type.INDICATION_REQUEST
+
     source.send_control("gnb-0", sst=1, sd=1, min_ratio=5, max_ratio=25)
-    bridge.join(timeout=5)
-    assert not bridge.is_alive()
+    assert stop_event.wait(timeout=5)
+    agent.join(timeout=5)
+    assert not agent.is_alive()
 
     ctrl_msg = ran_messages_pb2.RAN_message()
     ctrl_msg.ParseFromString(received_control["data"])
+    assert ctrl_msg.msg_type == ran_messages_pb2.RAN_message_type.CONTROL
     slicing = ctrl_msg.ran_control_request.target_param_map[0].slicing_ctrl
     assert (slicing.min_ratio, slicing.max_ratio) == (5, 25)
 
     source.close()
 
 
-def test_connect_timeout_raises_when_no_bridge_connects():
+def test_poll_times_out_when_no_gnb_agent_running():
     source = LiveKpmSource(
-        gnb_id="gnb-0", sub_port=SUB_PORT + 1, control_port=CONTROL_PORT + 1, connect_timeout_s=0.3,
+        gnb_id="gnb-0", xapp_listen_port=XAPP_LISTEN_PORT + 1, gnb_listen_port=GNB_LISTEN_PORT + 1,
+        recv_timeout_s=0.3,
     )
     with pytest.raises(TimeoutError):
         source.poll()
+    source.close()

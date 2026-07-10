@@ -1,19 +1,37 @@
-"""Live KpmSource: the real E2-loop transport, talking to a running OAI
-gNB via the o-ran-e2sim OAI-protobuf bridge (kpm_sim, binds UDP 6600/6655)
-and xapp-oai/base-xapp's confirmed-working RIC-bypass wire protocol (UDP
-subscribe on 7001, streamed indications + control over a TCP socket on
-4200) -- see Stage Zero plan's Path A decision. The encode/parse logic is
-reimplemented here from slicing_ctrl_influxdb_xapp_kpm.py (a demo script,
-not an importable module) rather than copied verbatim, and its InfluxDB
-side-logging is dropped (not needed for Stage Zero).
+"""Live KpmSource: the real, RIC-free E2 loop, talking directly to OAI's
+gNB via its built-in `E2_AGENT` UDP control loop
+(oai_ran/openair2/E2_AGENT/e2_agent_app.c, unconditionally started at gNB
+boot -- NOT the CMake-gated FlexRIC E2_AGENT, a different, dormant thing
+of the same name; NOT the o-ran-e2sim/kpm_sim pipeline, which was found to
+require a real E2AP/SCTP RIC Subscription Request before it relays any
+data and is therefore not usable without a RIC).
+
+Wire protocol, confirmed by reading e2_agent_app.c/e2_message_handlers.c:
+  - gNB listens on UDP 0.0.0.0:6655 (E2AGENT_IN_PORT) for
+    INDICATION_REQUEST and CONTROL RANMessage protobufs.
+  - gNB sends responses to UDP 127.0.0.1:6600 (E2AGENT_OUT_PORT).
+  - This is request/response, not a subscribe-and-stream model: each
+    INDICATION_REQUEST gets exactly one INDICATION_RESPONSE back; CONTROL
+    messages get no response at all (fire-and-forget, applied directly to
+    the live gNB_MAC_INST slicing policy via apply_slicing_ctrl()).
+  - CRITICAL: SUBSCRIPTION-type messages are unimplemented and crash the
+    gNB process (assert(0!=0) in handle_subscription()) -- never send one.
+    This module only ever builds INDICATION_REQUEST and CONTROL messages.
+
+This corrects an earlier version of this module, which targeted the
+xapp-oai/base-xapp UDP-7001/TCP-4200 transport (the o-ran-e2sim/kpm_sim
+pipeline) before the RIC dependency above was discovered. That transport
+is kept nowhere in this file now; this one is UDP-only end to end,
+matching xapp-oai/base-xapp/xapp_control_ricbypass.py's port pairing
+(in_port=6600, out_port=6655) -- though that module itself is unused here
+(a thin demo wrapper, not an importable library); the send/receive calls
+below are plain socket calls, reimplemented directly.
 
 Environment note, discovered empirically: the pre-generated
-ran_messages_pb2.py in xapp-oai was built against an older protoc and
-raises "Descriptors cannot be created directly" under this environment's
-protobuf 4.25.6 (C++-backed) implementation. Forcing the pure-Python
-implementation via PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION fixes this
-without touching the xapp-oai repo or downgrading protobuf, at some
-(here, irrelevant) parsing-speed cost.
+ran_messages_pb2.py raises "Descriptors cannot be created directly" under
+this environment's protobuf 4.25.6 (C++-backed) implementation. Forcing
+the pure-Python implementation via PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION
+fixes this without touching the xapp-oai repo or downgrading protobuf.
 """
 
 import os
@@ -29,9 +47,11 @@ DEFAULT_PROTO_BUILD_DIR = "/home/w5/ors/xapp-oai/base-xapp/oai-oran-protolib/bui
 _proto_dir = os.environ.get("XAPP_OAI_PROTO_DIR", DEFAULT_PROTO_BUILD_DIR)
 if not Path(_proto_dir).is_dir():
     raise ImportError(
-        f"xapp-oai protobuf build dir not found at {_proto_dir!r}. Set XAPP_OAI_PROTO_DIR "
-        "to the directory containing ran_messages_pb2.py (normally "
-        "<xapp-oai>/base-xapp/oai-oran-protolib/builds)."
+        f"protobuf build dir not found at {_proto_dir!r}. Set XAPP_OAI_PROTO_DIR "
+        "to a directory containing ran_messages_pb2.py (e.g. "
+        "<xapp-oai>/base-xapp/oai-oran-protolib/builds, or "
+        "<oai_ran>/openair2/E2_AGENT/oai-oran-protolib/builds -- both ship an "
+        "identical generated module)."
     )
 if _proto_dir not in sys.path:
     sys.path.insert(0, _proto_dir)
@@ -40,12 +60,14 @@ import ran_messages_pb2  # noqa: E402
 
 from .types import UeSample  # noqa: E402
 
+# gNB's ports, from oai_ran/openair2/E2_AGENT/e2_agent_app.h -- named from
+# the gNB's own perspective there (E2AGENT_IN_PORT/E2AGENT_OUT_PORT); this
+# module names them from the xApp's perspective instead (the port the
+# xApp SENDS TO is the gNB's IN port, and vice versa).
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_SUB_PORT = 7001
-DEFAULT_CONTROL_PORT = 4200
+GNB_LISTEN_PORT = 6655   # xApp sends INDICATION_REQUEST/CONTROL here
+XAPP_LISTEN_PORT = 6600  # xApp receives INDICATION_RESPONSE here
 MAX_RECV_BYTES = 4096
-
-_SD_TO_SLICE_ID = {0: "embb", 1: "urllc", 2: "mmtc"}
 
 
 def build_indication_request() -> bytes:
@@ -104,83 +126,60 @@ def parse_indication_response(data: bytes, gnb_id: str, timestamp_s: float) -> L
     return samples
 
 
-def open_control_socket(port: int, host: str = "", timeout_s: Optional[float] = None) -> socket.socket:
-    """Blocks until the bridge connects as a TCP client -- same handshake
-    as xapp-oai/base-xapp/xapp_control.py::open_control_socket,
-    reimplemented (that module is a demo script, not an importable
-    library) rather than imported."""
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((host, port))
-    server.listen(1)
-    if timeout_s is not None:
-        server.settimeout(timeout_s)
-    try:
-        conn, _addr = server.accept()
-    except socket.timeout:
-        server.close()
-        raise TimeoutError(
-            f"no E2/bridge connection on control port {port} within {timeout_s}s -- "
-            "is the o-ran-e2sim bridge (kpm_sim) running and pointed at this port?"
-        )
-    server.close()
-    return conn
-
-
 class LiveKpmSource:
-    """Real E2-loop transport implementing the KpmSource protocol.
+    """Real E2-loop transport implementing the KpmSource protocol, over
+    OAI's built-in RIC-free UDP E2_AGENT (see module docstring).
 
-    poll() blocks on the TCP socket until the bridge sends the next
-    indication -- there is no separate step_seconds sleep here, the live
-    cadence *is* the report cadence set on the E2-node/bridge side.
+    Request/response, not subscribe-and-stream: poll() sends a fresh
+    INDICATION_REQUEST and blocks for exactly one INDICATION_RESPONSE, so
+    the live cadence is caller-driven (RANEnv.step()'s loop), not a
+    background report timer.
     """
 
     def __init__(
         self,
         gnb_id: str,
         host: str = DEFAULT_HOST,
-        sub_port: int = DEFAULT_SUB_PORT,
-        control_port: int = DEFAULT_CONTROL_PORT,
-        connect_timeout_s: float = 60.0,
+        xapp_listen_port: int = XAPP_LISTEN_PORT,
+        gnb_listen_port: int = GNB_LISTEN_PORT,
+        recv_timeout_s: float = 30.0,
     ):
         self._gnb_id = gnb_id
         self._host = host
-        self._sub_port = sub_port
-        self._control_port = control_port
-        self._connect_timeout_s = connect_timeout_s
-        self._control_sck: Optional[socket.socket] = None
+        self._gnb_listen_port = gnb_listen_port
+        self._recv_timeout_s = recv_timeout_s
+
+        self._recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._recv_sock.bind(("", xapp_listen_port))
+        self._recv_sock.settimeout(recv_timeout_s)
+
+        self._send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
         self.sent_controls: List[Dict[str, Any]] = []
 
-    def _ensure_connected(self) -> None:
-        if self._control_sck is not None:
-            return
-        self._send_subscription()
-        self._control_sck = open_control_socket(self._control_port, timeout_s=self._connect_timeout_s)
-
-    def _send_subscription(self) -> None:
-        buf = build_indication_request()
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            sock.sendto(buf, (self._host, self._sub_port))
-        finally:
-            sock.close()
-
     def poll(self) -> List[UeSample]:
-        self._ensure_connected()
-        data = self._control_sck.recv(MAX_RECV_BYTES)
-        if not data:
-            return []
+        buf = build_indication_request()
+        self._send_sock.sendto(buf, (self._host, self._gnb_listen_port))
+        try:
+            data, _addr = self._recv_sock.recvfrom(MAX_RECV_BYTES)
+        except socket.timeout:
+            raise TimeoutError(
+                f"no INDICATION_RESPONSE from gNB E2 agent within {self._recv_timeout_s}s "
+                f"(sent request to {self._host}:{self._gnb_listen_port}, listening on "
+                f"port {self._recv_sock.getsockname()[1]}) -- is nr-softmodem running with "
+                "the ricbypass E2_AGENT built in (native oai_ran build, not the oaignb.yaml "
+                "Docker service, which clones vanilla upstream OAI without this code)?"
+            )
         return parse_indication_response(data, self._gnb_id, time.time())
 
     def send_control(self, gnb_id: str, sst: int, sd: int, min_ratio: int, max_ratio: int) -> None:
-        self._ensure_connected()
         buf = build_control_request(sst, sd, min_ratio, max_ratio)
-        self._control_sck.send(buf)
+        self._send_sock.sendto(buf, (self._host, self._gnb_listen_port))
         self.sent_controls.append(
             {"gnb_id": gnb_id, "sst": sst, "sd": sd, "min_ratio": min_ratio, "max_ratio": max_ratio}
         )
 
     def close(self) -> None:
-        if self._control_sck is not None:
-            self._control_sck.close()
-            self._control_sck = None
+        self._recv_sock.close()
+        self._send_sock.close()
