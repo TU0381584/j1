@@ -91,6 +91,23 @@ def test_run_single_rainbow_per_updates(tmp_path):
     assert policy.per_beta > beta_before  # anneal_beta called each episode
 
 
+def test_run_single_propagates_extra_limitations(tmp_path):
+    cfg = _cfg(paper2=False)
+    cfg.episode.steps_per_episode = 3
+    source = SyntheticKpmSource(seed=11, gnb_ids=cfg.gnb_ids, slice_ids=list(cfg.slice_by_id))
+    env = RANEnv(cfg, source, seed=11)
+    policy = build_policy("dqn", cfg)
+    omega_path = str(tmp_path / "omega.jsonl")
+    with OmegaLogger(omega_path) as omega:
+        run_single(
+            env, policy, "dqn", omega, n_episodes=1, seed=11, run_id="test-extra",
+            mode="live_testbed", training=False, cfg=cfg,
+            extra_limitations=["single physical gNB only"],
+        )
+    rows = read_omega_jsonl(omega_path)
+    assert all("single physical gNB only" in row["limitation"] for row in rows)
+
+
 def test_run_mc_produces_one_summary_per_rep(tmp_path):
     cfg = _cfg()
     cfg.episode.steps_per_episode = 5

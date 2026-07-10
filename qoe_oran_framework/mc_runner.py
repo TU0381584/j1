@@ -215,8 +215,10 @@ def run_single(
     batch_size: int = 16,
     replay_capacity: int = 10000,
     warmup_transitions: int = 32,
+    extra_limitations: Optional[List[str]] = None,
 ) -> RunSummary:
     set_seeds(seed)
+    extra_limitations = extra_limitations or []
 
     replay_buffer = None
     if training and algorithm == "dqn":
@@ -269,7 +271,7 @@ def run_single(
             }
             omega.log(
                 _make_omega_tuple(
-                    algorithm, cfg, evidence, list(result.info["limitations"]),
+                    algorithm, cfg, evidence, list(result.info["limitations"]) + extra_limitations,
                     run_id, episode_idx, step_idx, float(result.info["global_step"]), mode,
                 )
             )
@@ -301,7 +303,7 @@ def run_single(
                     "episode_mean_rho": episode_rho_mean,
                     "rollup": True,
                 },
-                [],
+                extra_limitations,
                 run_id, episode_idx, -1, float(episode_idx), mode,
             )
         )

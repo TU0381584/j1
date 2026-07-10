@@ -1,0 +1,68 @@
+# Live evaluation config: single physical OAI gNB (this rig has one),
+# 3-slice roster (matches the existing testbed's provisioned traffic
+# profiles), evaluation-only -- checkpoint is loaded from offline
+# training, no learning happens live (see xapp/saclb_xapp.py). Shared
+# across all algorithms (dqn/a2c/rainbow/lb_only) -- pick one via
+# saclb_xapp.py's --algorithm flag, no per-algorithm config needed since
+# the env/reward parameters here don't vary by algorithm.
+#
+# paper_variant: paper2 is set only to keep the mmtc slice available; the
+# LB term is a no-op here regardless (fairness_ratio is trivially 1.0 with
+# one gNB) -- see SINGLE_GNB_LIVE_LIMITATION in xapp/saclb_xapp.py.
+name: saclb_live
+random_seed: 256
+paper_variant: paper2
+B: 100
+Lmax: 100
+
+gnbs:
+  - gnb_id: gnb-0
+    prb_capacity: 100
+
+slices:
+  - slice_id: urllc
+    sst: 1
+    sd: 1
+    nominal_ratio: 30
+    min_ratio_floor: 5
+    max_ratio_cap: 60
+    latency_budget_ms: 15
+    loss_budget_pct: 0.8
+    priority_weight: 4.0
+    accept_reward: 1.0
+    violation_penalty: 2.0
+  - slice_id: embb
+    sst: 1
+    sd: 0
+    nominal_ratio: 60
+    min_ratio_floor: 10
+    max_ratio_cap: 90
+    latency_budget_ms: 45
+    loss_budget_pct: 2.0
+    priority_weight: 2.0
+    accept_reward: 1.0
+    violation_penalty: 1.0
+  - slice_id: mmtc
+    sst: 1
+    sd: 2
+    nominal_ratio: 10
+    min_ratio_floor: 5
+    max_ratio_cap: 40
+    latency_budget_ms: 65
+    loss_budget_pct: 3.5
+    priority_weight: 1.0
+    accept_reward: 1.0
+    violation_penalty: 0.5
+
+reward:
+  congestion_coeff: 1.0
+  lb_coeff: 1.0
+
+arrivals:
+  synthetic_arrivals_per_step: 2
+  max_pending_per_step: 8
+  ceiling_step_ratio: 5
+
+episode:
+  step_seconds: 5.0
+  steps_per_episode: 60
