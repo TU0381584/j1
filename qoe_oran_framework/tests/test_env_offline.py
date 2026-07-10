@@ -5,9 +5,15 @@ import numpy as np
 import pytest
 
 from qoe_oran_framework.config import load_saclb_config
-from qoe_oran_framework.env import RANEnv, encode_state, state_dim
+from qoe_oran_framework.env import (
+    RANEnv,
+    encode_full_request_state,
+    encode_state,
+    request_state_dim,
+    state_dim,
+)
 from qoe_oran_framework.replay_kpm_source import ReplayKpmSource, SyntheticKpmSource
-from qoe_oran_framework.types import UeSample
+from qoe_oran_framework.types import AdmissionRequest, UeSample
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 
@@ -113,6 +119,17 @@ def test_seeded_env_is_reproducible():
     assert np.allclose(obs1_a, obs1_b)
     assert reward_a == reward_b
     assert n_a == n_b
+
+
+def test_request_state_dim_and_encoding_shape():
+    cfg = load_saclb_config(str(CONFIGS_DIR / "saclb_offline_dqn.yaml"))
+    obs = np.zeros(state_dim(cfg), dtype=np.float32)
+    req = AdmissionRequest("r1", "urllc", "gnb-1", arrival_step=1)
+    full = encode_full_request_state(obs, req, cfg)
+    assert full.shape == (request_state_dim(cfg),)
+    # one-hot tail: 3 slices + 3 gnbs = 6 extra dims, urllc(slot0)/gnb-1(slot1) set
+    tail = full[state_dim(cfg):]
+    assert tail.tolist() == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
 
 
 def test_env_over_replay_kpm_source(tmp_path):

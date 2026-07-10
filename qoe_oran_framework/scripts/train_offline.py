@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Offline training runner: DQN / A2C / Rainbow against a synthetic KPM
+feed, for the full 300-episode Table I schedule (or a shorter smoke run).
+Paper #1's SAC-only comparator is just algorithm=dqn run against a
+paper_variant: paper1 config -- see comparators/sac_only.py.
+
+Usage:
+    python3 qoe_oran_framework/scripts/train_offline.py \
+        --algorithm dqn --config qoe_oran_framework/configs/saclb_offline_dqn.yaml \
+        --episodes 300 --seed 256
+"""
+
+import argparse
+import json
+import sys
+from dataclasses import asdict
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from qoe_oran_framework.config import load_saclb_config  # noqa: E402
+from qoe_oran_framework.mc_runner import run_mc  # noqa: E402
+from qoe_oran_framework.replay_kpm_source import SyntheticKpmSource  # noqa: E402
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--algorithm", required=True, choices=["dqn", "a2c", "rainbow"])
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--episodes", type=int, default=300)
+    parser.add_argument("--seed", type=int, default=256)
+    parser.add_argument("--results-dir", default="qoe_oran_framework/results/offline")
+    args = parser.parse_args()
+
+    cfg = load_saclb_config(args.config)
+
+    def kpm_source_factory(seed: int) -> SyntheticKpmSource:
+        return SyntheticKpmSource(seed=seed, gnb_ids=cfg.gnb_ids, slice_ids=list(cfg.slice_by_id))
+
+    summaries = run_mc(
+        cfg,
+        args.algorithm,
+        kpm_source_factory,
+        n_reps=1,
+        episodes_per_rep=args.episodes,
+        base_seed=args.seed,
+        mode="offline_synthetic",
+        training=True,
+        results_dir=args.results_dir,
+    )
+
+    out_dir = Path(args.results_dir) / args.algorithm / "offline_synthetic"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = out_dir / "summary.json"
+    payload = [asdict(s) for s in summaries]
+    with summary_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+    print(json.dumps(payload, indent=2))
+    print(f"\nSummary written to {summary_path}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

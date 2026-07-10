@@ -43,6 +43,36 @@ def state_dim(cfg: SacLbExperimentConfig) -> int:
     return dim
 
 
+def encode_request_context(request: AdmissionRequest, cfg: SacLbExperimentConfig) -> np.ndarray:
+    """One-hot [slice_onehot..., gnb_onehot...] identifying which pending
+    request a decision is for.
+
+    The papers' MDP considers one request per step; Stage Zero's RANEnv
+    instead batches every request pending at a step (see env.py module
+    docstring / build_order notes) so a single shared cluster observation
+    can cover several simultaneous admission decisions. Since
+    oranslice_drl.RLPolicy.select_action takes one state vector and returns
+    one action, each request in the batch is decided by concatenating this
+    per-request identity onto the shared cluster observation and calling
+    select_action once per request -- this is how a single reused policy
+    instance makes slice/gNB-differentiated decisions within one step,
+    rather than needing a bespoke multi-request policy interface.
+    """
+    slice_oh = [1.0 if request.slice_id == s.slice_id else 0.0 for s in cfg.slices]
+    gnb_oh = [1.0 if request.gnb_id == gid else 0.0 for gid in cfg.gnb_ids]
+    return np.array(slice_oh + gnb_oh, dtype=np.float32)
+
+
+def request_state_dim(cfg: SacLbExperimentConfig) -> int:
+    return state_dim(cfg) + len(cfg.slices) + len(cfg.gnb_ids)
+
+
+def encode_full_request_state(
+    obs: np.ndarray, request: AdmissionRequest, cfg: SacLbExperimentConfig
+) -> np.ndarray:
+    return np.concatenate([obs, encode_request_context(request, cfg)]).astype(np.float32)
+
+
 class RANEnv:
     def __init__(self, cfg: SacLbExperimentConfig, kpm_source: KpmSource, seed: Optional[int] = None):
         self.cfg = cfg
@@ -70,6 +100,10 @@ class RANEnv:
 
     def pending_requests(self) -> List[AdmissionRequest]:
         return list(self._pending)
+
+    @property
+    def last_cluster_state(self) -> Optional[ClusterState]:
+        return self._last_cluster_state
 
     def step(self, actions: List[int]) -> StepResult:
         if self._last_cluster_state is None:
