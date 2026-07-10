@@ -1,0 +1,72 @@
+version: '3'
+services:
+  nr_ue_001:
+    image: docker_oai_nrue:local
+    container_name: nr_ue_001
+    entrypoint: /bin/bash
+    command:
+      - -lc
+      - "cd /openairinterface5g && . ./oaienv && cd cmake_targets/ran_build/build && ./nr-uesoftmodem -O /tmp/nr-ue.conf --sa --rfsim -r 106 --numerology 1 --band 78 -C 3619200000 --uicc0.imsi 001010000100001 --uicc0.nssai_sd 000000 --uicc0.dnn internet --uicc0.nssai_sst 1 --rfsimulator.serveraddr 172.22.0.25 --log_config.global_log_options level,nocolor,time"
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+      - IPC_LOCK
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ../oai/nrue.uicc.conf:/tmp/nr-ue.conf:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      default: {}
+  nr_ue_002:
+    image: docker_oai_nrue:local
+    container_name: nr_ue_002
+    entrypoint: /bin/bash
+    command:
+      - -lc
+      - "cd /openairinterface5g && . ./oaienv && cd cmake_targets/ran_build/build && ./nr-uesoftmodem -O /tmp/nr-ue.conf --sa --rfsim -r 106 --numerology 1 --band 78 -C 3619200000 --uicc0.imsi 001010000100002 --uicc0.nssai_sd 000001 --uicc0.dnn internet --uicc0.nssai_sst 1 --rfsimulator.serveraddr 172.22.0.25 --log_config.global_log_options level,nocolor,time"
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+      - IPC_LOCK
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ../oai/nrue.uicc.conf:/tmp/nr-ue.conf:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      default: {}
+  nr_ue_003:
+    image: docker_oai_nrue:local
+    container_name: nr_ue_003
+    entrypoint: /bin/bash
+    command:
+      - -lc
+      - "cd /openairinterface5g && . ./oaienv && cd cmake_targets/ran_build/build && ./nr-uesoftmodem -O /tmp/nr-ue.conf --sa --rfsim -r 106 --numerology 1 --band 78 -C 3619200000 --uicc0.imsi 001010000100003 --uicc0.nssai_sd 000002 --uicc0.dnn internet --uicc0.nssai_sst 1 --rfsimulator.serveraddr 172.22.0.25 --log_config.global_log_options level,nocolor,time"
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+      - IPC_LOCK
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ../oai/nrue.uicc.conf:/tmp/nr-ue.conf:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      default: {}
+networks:
+  default:
+    external:
+      name: docker_open5gs_default

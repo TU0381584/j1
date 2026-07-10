@@ -1,0 +1,26 @@
+[
+  {
+    "controller": "a2c_train",
+    "num_seeds": 2,
+    "reward_mean": 1.8607342153643516,
+    "reward_std": 0.34807516322204846,
+    "violations_mean": 18.0,
+    "violations_std": 4.0
+  },
+  {
+    "controller": "dqn_train",
+    "num_seeds": 2,
+    "reward_mean": 1.570786551698009,
+    "reward_std": 0.38865161427066,
+    "violations_mean": 21.0,
+    "violations_std": 2.0
+  },
+  {
+    "controller": "rule_based",
+    "num_seeds": 2,
+    "reward_mean": 1.5398051967864832,
+    "reward_std": 0.6251384581037522,
+    "violations_mean": 18.5,
+    "violations_std": 6.5
+  }
+]

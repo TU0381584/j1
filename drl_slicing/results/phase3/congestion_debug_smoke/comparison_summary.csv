@@ -1,0 +1,4 @@
+controller,num_seeds,reward_mean,reward_std,reward_min,reward_max,reward_total_mean,reward_total_std,violations_mean,violations_std,violations_per_step_mean,violations_per_step_std
+dqn,1,-49.92367171370868,0.0,-49.92367171370868,-49.92367171370868,-998.4734342741735,0.0,60.0,0.0,3.0,0.0
+a2c,1,-49.711100348675316,0.0,-49.711100348675316,-49.711100348675316,-994.2220069735063,0.0,60.0,0.0,3.0,0.0
+threshold_heuristic,1,-46.43389438339436,0.0,-46.43389438339436,-46.43389438339436,-928.6778876678873,0.0,60.0,0.0,3.0,0.0

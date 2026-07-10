@@ -1,0 +1,15 @@
+{
+  "static": {
+    "num_seeds": 1,
+    "reward_mean": -5.711322596551223,
+    "reward_std": 0.0,
+    "reward_min": -5.711322596551223,
+    "reward_max": -5.711322596551223,
+    "reward_total_mean": -171.33967789653667,
+    "reward_total_std": 0.0,
+    "violations_mean": 87.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 2.9,
+    "violations_per_step_std": 0.0
+  }
+}

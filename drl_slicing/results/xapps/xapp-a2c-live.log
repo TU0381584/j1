@@ -1,0 +1,14 @@
+[xapp-a2c-live] run 1 | mode=a2c | horizon=1800
+[xapp-a2c-live] run 2 | mode=a2c | horizon=1800
+Traceback (most recent call last):
+  File "scripts/xapp_service.py", line 94, in <module>
+    raise SystemExit(main())
+  File "scripts/xapp_service.py", line 82, in main
+    run_experiment(cfg)
+  File "/home/w5/ors/ORANSlice/drl_slicing/oranslice_drl/runner.py", line 277, in run_experiment
+    collector = _build_collector(config, slice_ids)
+  File "/home/w5/ors/ORANSlice/drl_slicing/oranslice_drl/runner.py", line 92, in _build_collector
+    _assert_live_oai_stack_running()
+  File "/home/w5/ors/ORANSlice/drl_slicing/oranslice_drl/runner.py", line 60, in _assert_live_oai_stack_running
+    raise RuntimeError(
+RuntimeError: Live OAI E2E stack is not up. Missing containers: oaignb. Start it first with: bash drl_slicing/scripts/run_closed_loop_sim.sh --ue-count 5 --active-algo dqn

@@ -1,0 +1,67 @@
+{
+  "dqn_train": {
+    "num_seeds": 1,
+    "reward_mean": -0.16669679660809955,
+    "reward_std": 0.0,
+    "reward_min": -0.16669679660809955,
+    "reward_max": -0.16669679660809955,
+    "reward_total_mean": -10.001807796485974,
+    "reward_total_std": 0.0,
+    "violations_mean": 42.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.7,
+    "violations_per_step_std": 0.0
+  },
+  "a2c_train": {
+    "num_seeds": 1,
+    "reward_mean": -0.17581141678949036,
+    "reward_std": 0.0,
+    "reward_min": -0.17581141678949036,
+    "reward_max": -0.17581141678949036,
+    "reward_total_mean": -10.548685007369421,
+    "reward_total_std": 0.0,
+    "violations_mean": 46.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.7666666666666667,
+    "violations_per_step_std": 0.0
+  },
+  "rule_based": {
+    "num_seeds": 1,
+    "reward_mean": -0.16984088811942502,
+    "reward_std": 0.0,
+    "reward_min": -0.16984088811942502,
+    "reward_max": -0.16984088811942502,
+    "reward_total_mean": -10.190453287165502,
+    "reward_total_std": 0.0,
+    "violations_mean": 41.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.6833333333333333,
+    "violations_per_step_std": 0.0
+  },
+  "static": {
+    "num_seeds": 1,
+    "reward_mean": -0.14636301019371187,
+    "reward_std": 0.0,
+    "reward_min": -0.14636301019371187,
+    "reward_max": -0.14636301019371187,
+    "reward_total_mean": -8.781780611622713,
+    "reward_total_std": 0.0,
+    "violations_mean": 42.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.7,
+    "violations_per_step_std": 0.0
+  },
+  "random": {
+    "num_seeds": 1,
+    "reward_mean": -0.1682037473759236,
+    "reward_std": 0.0,
+    "reward_min": -0.1682037473759236,
+    "reward_max": -0.1682037473759236,
+    "reward_total_mean": -10.092224842555417,
+    "reward_total_std": 0.0,
+    "violations_mean": 40.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.6666666666666666,
+    "violations_per_step_std": 0.0
+  }
+}

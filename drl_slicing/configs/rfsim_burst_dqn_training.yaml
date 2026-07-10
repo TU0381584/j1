@@ -1,0 +1,46 @@
+name: rfsim_burst_dqn_training
+horizon_steps: 300
+random_seed: 42
+
+slices:
+  - slice_id: "1-0"
+    sst: 1
+    sd: 0
+    latency_budget_ms: 35
+    loss_budget_pct: 1.8
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+  - slice_id: "1-1"
+    sst: 1
+    sd: 1
+    latency_budget_ms: 22
+    loss_budget_pct: 1.0
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+  - slice_id: "1-2"
+    sst: 1
+    sd: 2
+    latency_budget_ms: 20
+    loss_budget_pct: 0.9
+    min_ratio_bounds: [5, 60]
+    max_ratio_bounds: [40, 100]
+    dedicated_ratio: 5
+
+collector:
+  mode: csv_replay
+  step_seconds: 1
+  csv_path: data/phase3_burst_trace.csv
+  prometheus_url: "http://127.0.0.1:9090"
+  metric_queries: {}
+
+controller:
+  mode: dqn_train
+  alpha: 0.2
+  min_step: 2
+  max_step: 5
+
+output:
+  policy_json_path: /home/w5/ors/ORANSlice/oai_ran/rrmPolicy.json
+  run_log_csv: results/phase3/burst/dqn/rfsim_burst_dqn_training_log.csv

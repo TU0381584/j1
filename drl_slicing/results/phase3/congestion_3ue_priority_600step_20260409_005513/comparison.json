@@ -1,0 +1,41 @@
+{
+  "dqn": {
+    "num_seeds": 1,
+    "reward_mean": 2.4093399067723906,
+    "reward_std": 0.0,
+    "reward_min": 2.4093399067723906,
+    "reward_max": 2.4093399067723906,
+    "reward_total_mean": 1445.6039440634343,
+    "reward_total_std": 0.0,
+    "violations_mean": 2.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.0033333333333333335,
+    "violations_per_step_std": 0.0
+  },
+  "a2c": {
+    "num_seeds": 1,
+    "reward_mean": 2.5467356468532474,
+    "reward_std": 0.0,
+    "reward_min": 2.5467356468532474,
+    "reward_max": 2.5467356468532474,
+    "reward_total_mean": 1528.0413881119484,
+    "reward_total_std": 0.0,
+    "violations_mean": 0.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.0,
+    "violations_per_step_std": 0.0
+  },
+  "rule_based": {
+    "num_seeds": 1,
+    "reward_mean": 2.8904400000000003,
+    "reward_std": 0.0,
+    "reward_min": 2.8904400000000003,
+    "reward_max": 2.8904400000000003,
+    "reward_total_mean": 1734.2640000000001,
+    "reward_total_std": 0.0,
+    "violations_mean": 0.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.0,
+    "violations_per_step_std": 0.0
+  }
+}

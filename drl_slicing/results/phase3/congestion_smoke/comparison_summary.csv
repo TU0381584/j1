@@ -1,0 +1,3 @@
+controller,num_seeds,reward_mean,reward_std,reward_min,reward_max,reward_total_mean,reward_total_std,violations_mean,violations_std,violations_per_step_mean,violations_per_step_std
+dqn_train,1,2.325996565877399,0.0,2.325996565877399,2.325996565877399,186.07972527019194,0.0,0.0,0.0,0.0,0.0
+a2c_train,1,2.3080880882615302,0.0,2.3080880882615302,2.3080880882615302,184.6470470609224,0.0,0.0,0.0,0.0,0.0

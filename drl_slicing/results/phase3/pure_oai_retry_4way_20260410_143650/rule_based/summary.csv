@@ -1,0 +1,2 @@
+seed,avg_reward,total_reward,total_sla_violations,avg_sla_violations,num_steps
+123,1.0231016561287076,18.415829810316737,8.0,0.4444444444444444,18

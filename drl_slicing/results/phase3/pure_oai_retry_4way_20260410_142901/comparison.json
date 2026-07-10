@@ -1,0 +1,54 @@
+{
+  "rule_based": {
+    "num_seeds": 1,
+    "reward_mean": 0.25836281093161023,
+    "reward_std": 0.0,
+    "reward_min": 0.25836281093161023,
+    "reward_max": 0.25836281093161023,
+    "reward_total_mean": 4.650530596768984,
+    "reward_total_std": 0.0,
+    "violations_mean": 10.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.5555555555555556,
+    "violations_per_step_std": 0.0
+  },
+  "dqn": {
+    "num_seeds": 1,
+    "reward_mean": 1.5997148764255653,
+    "reward_std": 0.0,
+    "reward_min": 1.5997148764255653,
+    "reward_max": 1.5997148764255653,
+    "reward_total_mean": 28.794867775660176,
+    "reward_total_std": 0.0,
+    "violations_mean": 6.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.3333333333333333,
+    "violations_per_step_std": 0.0
+  },
+  "a2c": {
+    "num_seeds": 1,
+    "reward_mean": 2.395853884311968,
+    "reward_std": 0.0,
+    "reward_min": 2.395853884311968,
+    "reward_max": 2.395853884311968,
+    "reward_total_mean": 43.12536991761542,
+    "reward_total_std": 0.0,
+    "violations_mean": 3.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.16666666666666666,
+    "violations_per_step_std": 0.0
+  },
+  "rule_based_drl_hybrid": {
+    "num_seeds": 1,
+    "reward_mean": 1.8769963796207136,
+    "reward_std": 0.0,
+    "reward_min": 1.8769963796207136,
+    "reward_max": 1.8769963796207136,
+    "reward_total_mean": 33.785934833172846,
+    "reward_total_std": 0.0,
+    "violations_mean": 7.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.3888888888888889,
+    "violations_per_step_std": 0.0
+  }
+}

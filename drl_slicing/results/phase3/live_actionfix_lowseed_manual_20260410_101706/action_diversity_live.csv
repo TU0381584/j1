@@ -1,0 +1,5 @@
+controller,seed,steps,unique_joint_actions,slice0_unique,slice1_unique,slice2_unique,slice0_min,slice0_max,slice1_min,slice1_max,slice2_min,slice2_max
+a2c_train,42,60,60,46,48,48,1,140,0,139,7,141
+a2c_train,123,60,60,48,45,49,0,140,5,143,7,134
+dqn_train,42,60,60,51,46,46,0,141,3,140,3,143
+dqn_train,123,60,60,47,44,45,5,142,5,140,3,143

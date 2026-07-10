@@ -1,0 +1,16 @@
+===== seed=42 dqn=dqn_hybrid_eval_actionfix.pt a2c=a2c_hybrid_eval_actionfix.pt weights=(0.20,0.45,0.35) =====
+running rule_based
+running dqn
+running a2c
+running rule_based_drl_hybrid
+OUT_DIR=results/phase3/pure_oai_retry_4way_20260410_142901
+rule_based_reward=0.258363
+dqn_reward=1.599715
+a2c_reward=2.395854
+hybrid_reward=1.876996
+rule_based_violps=0.555556
+dqn_violps=0.333333
+a2c_violps=0.166667
+hybrid_violps=0.388889
+all_beat_rule=1
+SUCCESS seed=42 dqn=results/offline_checkpoints/dqn_hybrid_eval_actionfix.pt a2c=results/offline_checkpoints/a2c_hybrid_eval_actionfix.pt weights=0.20,0.45,0.35

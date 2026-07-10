@@ -1,0 +1,2 @@
+combo,rule_reward,dqn_reward,a2c_reward,hybrid_reward,rule_violps,dqn_violps,a2c_violps,hybrid_violps,min_reward_margin,violation_penalty,score,all_beat_rule
+live_balanced,0.466058579140684,0.15940904790276575,1.9187660251257757,1.4050133673311869,0.4166666666666667,0.375,0.2916666666666667,0.375,-0.30664953123791827,0.0,-0.30664953123791827,0

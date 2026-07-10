@@ -1,0 +1,93 @@
+version: '3'
+services:
+  nr_ue_001:
+    image: docker_ueransim
+    container_name: nr_ue_001
+    stdin_open: true
+    tty: true
+    volumes:
+      - ../ueransim:/mnt/ueransim
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - ../.env
+    environment:
+      - COMPONENT_NAME=ueransim-ue-001
+      - UE1_IMSI=001010000100001
+      - UE1_IMEI=356938035640001
+      - UE1_IMEISV=4370816125800001
+      - UE1_KI=465B5CE8B199B49FAA5F0A2EE238A6BC
+      - UE1_OP=E8ED289DEBA952E4283B54E88E6183CA
+      - UE1_AMF=8000
+      - UE_PROFILE=embb
+      - UE_SLICE_SST=1
+      - UE_SLICE_SD=000000
+    expose:
+      - "4997/udp"
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    networks:
+      default: {}
+  nr_ue_002:
+    image: docker_ueransim
+    container_name: nr_ue_002
+    stdin_open: true
+    tty: true
+    volumes:
+      - ../ueransim:/mnt/ueransim
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - ../.env
+    environment:
+      - COMPONENT_NAME=ueransim-ue-002
+      - UE1_IMSI=001010000100002
+      - UE1_IMEI=356938035640002
+      - UE1_IMEISV=4370816125800002
+      - UE1_KI=465B5CE8B199B49FAA5F0A2EE238A6BC
+      - UE1_OP=E8ED289DEBA952E4283B54E88E6183CA
+      - UE1_AMF=8000
+      - UE_PROFILE=urllc
+      - UE_SLICE_SST=1
+      - UE_SLICE_SD=000001
+    expose:
+      - "4997/udp"
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    networks:
+      default: {}
+  nr_ue_003:
+    image: docker_ueransim
+    container_name: nr_ue_003
+    stdin_open: true
+    tty: true
+    volumes:
+      - ../ueransim:/mnt/ueransim
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - ../.env
+    environment:
+      - COMPONENT_NAME=ueransim-ue-003
+      - UE1_IMSI=001010000100003
+      - UE1_IMEI=356938035640003
+      - UE1_IMEISV=4370816125800003
+      - UE1_KI=465B5CE8B199B49FAA5F0A2EE238A6BC
+      - UE1_OP=E8ED289DEBA952E4283B54E88E6183CA
+      - UE1_AMF=8000
+      - UE_PROFILE=mmtc
+      - UE_SLICE_SST=1
+      - UE_SLICE_SD=000002
+    expose:
+      - "4997/udp"
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    networks:
+      default: {}
+networks:
+  default:
+    external:
+      name: docker_open5gs_default

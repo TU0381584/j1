@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "scripts/train_drl.py", line 26, in <module>
+    from oranslice_drl.config import load_experiment_config
+  File "/home/w5/ors/ORANSlice/drl_slicing/./oranslice_drl/__init__.py", line 1, in <module>
+    from .config import ExperimentConfig, load_experiment_config
+  File "/home/w5/ors/ORANSlice/drl_slicing/./oranslice_drl/config.py", line 75, in <module>
+    class ExperimentConfig:
+  File "/usr/lib/python3.8/dataclasses.py", line 1019, in dataclass
+    return wrap(cls)
+  File "/usr/lib/python3.8/dataclasses.py", line 1011, in wrap
+    return _process_class(cls, init, repr, eq, order, unsafe_hash, frozen)
+  File "/usr/lib/python3.8/dataclasses.py", line 925, in _process_class
+    _init_fn(flds,
+  File "/usr/lib/python3.8/dataclasses.py", line 529, in _init_fn
+    return _create_fn('__init__',
+  File "/usr/lib/python3.8/dataclasses.py", line 398, in _create_fn
+    exec(txt, globals, ns)
+  File "<string>", line 1, in <module>
+KeyboardInterrupt

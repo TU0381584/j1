@@ -1,0 +1,67 @@
+{
+  "dqn_train": {
+    "num_seeds": 10,
+    "reward_mean": 2.9387151599822725,
+    "reward_std": 0.008640028927453596,
+    "reward_min": 2.92366498594666,
+    "reward_max": 2.954509826644784,
+    "reward_total_mean": 881.614547994682,
+    "reward_total_std": 2.592008678236073,
+    "violations_mean": 0.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.0,
+    "violations_per_step_std": 0.0
+  },
+  "a2c_train": {
+    "num_seeds": 10,
+    "reward_mean": 2.9422788832046267,
+    "reward_std": 0.007439829213366001,
+    "reward_min": 2.9298380066931133,
+    "reward_max": 2.9541299932449387,
+    "reward_total_mean": 882.6836649613881,
+    "reward_total_std": 2.231948764009799,
+    "violations_mean": 0.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.0,
+    "violations_per_step_std": 0.0
+  },
+  "static": {
+    "num_seeds": 10,
+    "reward_mean": 2.681223645239557,
+    "reward_std": 0.009269042711020213,
+    "reward_min": 2.6670424132242956,
+    "reward_max": 2.6968421970091625,
+    "reward_total_mean": 804.3670935718671,
+    "reward_total_std": 2.780712813306066,
+    "violations_mean": 0.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.0,
+    "violations_per_step_std": 0.0
+  },
+  "rule_based": {
+    "num_seeds": 10,
+    "reward_mean": 2.68134379932916,
+    "reward_std": 0.009263127353926622,
+    "reward_min": 2.6670424132242956,
+    "reward_max": 2.6968421970091625,
+    "reward_total_mean": 804.4031397987479,
+    "reward_total_std": 2.778938206177989,
+    "violations_mean": 0.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.0,
+    "violations_per_step_std": 0.0
+  },
+  "random": {
+    "num_seeds": 10,
+    "reward_mean": 2.620204048351187,
+    "reward_std": 0.02680129506493045,
+    "reward_min": 2.572664027226126,
+    "reward_max": 2.663255180706972,
+    "reward_total_mean": 786.0612145053561,
+    "reward_total_std": 8.040388519479151,
+    "violations_mean": 24.4,
+    "violations_std": 5.023942674832188,
+    "violations_per_step_mean": 0.08133333333333334,
+    "violations_per_step_std": 0.01674647558277396
+  }
+}

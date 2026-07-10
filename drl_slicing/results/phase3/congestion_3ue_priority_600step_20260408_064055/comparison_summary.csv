@@ -1,0 +1,4 @@
+controller,num_seeds,reward_mean,reward_std,reward_min,reward_max,reward_total_mean,reward_total_std,violations_mean,violations_std,violations_per_step_mean,violations_per_step_std
+dqn,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+a2c,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
+threshold_heuristic,1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0

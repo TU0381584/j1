@@ -1,0 +1,140 @@
+Running Phase 3 live matrix
+  Output root : results/phase3/live_matrix_20260407_lowram
+  Horizon     : 300
+  Step seconds: 1
+  Seeds       : 42 123 456 789 999 1001 1002 1003 1004 1005
+  Controllers : dqn_train a2c_train ppo_train rule_based static random
+Live OAI stack not detected. Starting it now...
+Launching closed-loop simulation preset
+  gNB mode         : oai
+  UE stack         : oai (native OAI NR-UE)
+  Requested UEs    : 5
+  Active controller: dqn
+  xApp mode        : active-only
+  Traffic mode     : light
+Memory preflight
+  Available RAM    : 4428 MiB
+  Estimated demand : 3900 MiB (base=1800 + per_ue=420)
+  Safe UE ceiling  : 6
+Starting ORAN live E2E run with DRL xApps
+  UE count         : 5
+  eMBB ratio       : 0.7
+  Random seed      : 42
+  Active controller: dqn
+  gNB mode         : oai
+  UE stack         : oai
+  Traffic mode     : light
+  xApp mode        : active-only
+  OAI UE image     : docker_oai_nrue:local
+  OAI launch mode  : local-build
+  UE gNB override  : 172.22.0.25
+  Config           : /home/w5/ors/ORANSlice/drl_slicing/configs/openran_live_prom_true_100ue_randomized.yaml
+[1/10] Generate UE fleet compose + profiles
+Generated compose file: /home/w5/ors/ORANSlice/docker_open5gs/generated/nr-ue-oai-fleet.yaml
+Generated profile CSV : /home/w5/ors/ORANSlice/docker_open5gs/generated/ue_fleet_profiles.csv
+UE count=5 | eMBB=4 | URLLC=1
+[2/10] Start Open5GS core + metrics
+time="2026-04-07T14:07:01+08:00" level=warning msg="/home/w5/ors/ORANSlice/docker_open5gs/sa-deploy.yaml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+time="2026-04-07T14:07:01+08:00" level=warning msg="Found orphan containers ([oaignb srsgnb_zmq srsue_5g_zmq]) for this project. If you removed or renamed this service in your compose file, you can run this command with the --remove-orphans flag to clean it up."
+ Container nrf  Created
+ Container scp  Created
+ Container mongo  Created
+ Container grafana  Created
+ Container metrics  Created
+ Container udm  Created
+ Container udr  Created
+ Container pcf  Created
+ Container ausf  Created
+ Container webui  Created
+ Container nssf  Created
+ Container bsf  Created
+ Container amf  Created
+ Container smf  Created
+ Container upf  Created
+ Container nrf  Starting
+ Container mongo  Starting
+ Container grafana  Starting
+ Container scp  Starting
+ Container metrics  Starting
+ Container metrics  Started
+ Container grafana  Started
+ Container scp  Started
+ Container nrf  Started
+ Container ausf  Starting
+ Container udm  Starting
+ Container mongo  Started
+ Container bsf  Starting
+ Container nssf  Starting
+ Container pcf  Starting
+ Container udr  Starting
+ Container webui  Starting
+ Container ausf  Started
+ Container bsf  Started
+ Container udm  Started
+ Container webui  Started
+ Container nssf  Started
+ Container pcf  Started
+ Container udr  Started
+ Container amf  Starting
+ Container amf  Started
+ Container smf  Starting
+ Container smf  Started
+ Container upf  Starting
+ Container upf  Started
+[3/10] Start gNB stack (oai)
+time="2026-04-07T14:07:03+08:00" level=warning msg="/home/w5/ors/ORANSlice/docker_open5gs/oaignb.yaml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+time="2026-04-07T14:07:03+08:00" level=warning msg="networks.default: external.name is deprecated. Please set name and external: true"
+time="2026-04-07T14:07:03+08:00" level=warning msg="Found orphan containers ([upf smf amf webui udr bsf nssf pcf udm ausf metrics scp grafana mongo nrf srsgnb_zmq srsue_5g_zmq]) for this project. If you removed or renamed this service in your compose file, you can run this command with the --remove-orphans flag to clean it up."
+ Container oaignb  Created
+ Container oaignb  Starting
+ Container oaignb  Started
+[4/10] Provision UE subscribers
+Using subscriber tool: /open5gs/misc/db/open5gs-dbctl
+Using DB URI        : mongodb://mongo/open5gs
+Provisioning subscribers from: /home/w5/ors/ORANSlice/docker_open5gs/generated/ue_fleet_profiles.csv
+Provisioning complete: added=5 failed=0
+[5/10] Start UE fleet containers
+time="2026-04-07T14:07:04+08:00" level=warning msg="/home/w5/ors/ORANSlice/docker_open5gs/generated/nr-ue-oai-fleet.yaml: the attribute `version` is obsolete, it will be ignored, please remove it to avoid potential confusion"
+time="2026-04-07T14:07:04+08:00" level=warning msg="networks.default: external.name is deprecated. Please set name and external: true"
+ Container nr_ue_005  Creating
+ Container nr_ue_002  Creating
+ Container nr_ue_003  Creating
+ Container nr_ue_001  Creating
+ Container nr_ue_004  Creating
+ Container nr_ue_005  Created
+ Container nr_ue_002  Created
+ Container nr_ue_004  Created
+ Container nr_ue_001  Created
+ Container nr_ue_003  Created
+ Container nr_ue_002  Starting
+ Container nr_ue_004  Starting
+ Container nr_ue_005  Starting
+ Container nr_ue_001  Starting
+ Container nr_ue_003  Starting
+ Container nr_ue_002  Started
+ Container nr_ue_004  Started
+ Container nr_ue_005  Started
+ Container nr_ue_003  Started
+ Container nr_ue_001  Started
+[6/10] Start randomized eMBB/URLLC traffic loops
+Starting profile-based UE traffic
+  Profiles: /home/w5/ors/ORANSlice/docker_open5gs/generated/ue_fleet_profiles.csv
+  Target : 12.1.1.1
+  Mode   : light
+Traffic launch complete: started=5 skipped_not_running=0
+[7/10] Wait for UE sessions to stabilize
+[8/10] Start DRL xApps
+[9/10] Check active session metric (Prometheus)
+Prometheus fivegs_upffunction_upf_sessionnbr = 0
+[10/10] Launch complete
+Monitoring commands:
+  docker ps --format 'table {{.Names}}\t{{.Status}}'
+  tail -f /home/w5/ors/ORANSlice/drl_slicing/results/xapps/xapp-dqn-live.log
+  curl -s --get 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=fivegs_upffunction_upf_sessionnbr'
+
+To stop everything cleanly:
+  /home/w5/ors/ORANSlice/drl_slicing/scripts/stop_oran_live_100ue_xapps.sh
+
+=== Scenario: eMBB ===
+Config: configs/openran_live_phase3_embb.yaml
+Output: results/phase3/live_matrix_20260407_lowram/eMBB

@@ -1,0 +1,28 @@
+{
+  "rule_based": {
+    "num_seeds": 1,
+    "reward_mean": 1.5588022372702457,
+    "reward_std": 0.0,
+    "reward_min": 1.5588022372702457,
+    "reward_max": 1.5588022372702457,
+    "reward_total_mean": 28.058440270864423,
+    "reward_total_std": 0.0,
+    "violations_mean": 8.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.4444444444444444,
+    "violations_per_step_std": 0.0
+  },
+  "dqn": {
+    "num_seeds": 1,
+    "reward_mean": -2.5896521347307866,
+    "reward_std": 0.0,
+    "reward_min": -2.5896521347307866,
+    "reward_max": -2.5896521347307866,
+    "reward_total_mean": -46.61373842515416,
+    "reward_total_std": 0.0,
+    "violations_mean": 14.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 0.7777777777777778,
+    "violations_per_step_std": 0.0
+  }
+}

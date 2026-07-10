@@ -1,0 +1,80 @@
+{
+  "dqn_train": {
+    "num_seeds": 3,
+    "reward_mean": -16.35549894179894,
+    "reward_std": 0.0,
+    "reward_min": -16.35549894179894,
+    "reward_max": -16.35549894179894,
+    "reward_total_mean": -4906.649682539682,
+    "reward_total_std": 0.0,
+    "violations_mean": 598.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 1.9933333333333334,
+    "violations_per_step_std": 0.0
+  },
+  "a2c_train": {
+    "num_seeds": 3,
+    "reward_mean": -16.35549894179894,
+    "reward_std": 0.0,
+    "reward_min": -16.35549894179894,
+    "reward_max": -16.35549894179894,
+    "reward_total_mean": -4906.649682539682,
+    "reward_total_std": 0.0,
+    "violations_mean": 598.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 1.9933333333333334,
+    "violations_per_step_std": 0.0
+  },
+  "ppo_train": {
+    "num_seeds": 3,
+    "reward_mean": -16.35549894179894,
+    "reward_std": 0.0,
+    "reward_min": -16.35549894179894,
+    "reward_max": -16.35549894179894,
+    "reward_total_mean": -4906.649682539682,
+    "reward_total_std": 0.0,
+    "violations_mean": 598.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 1.9933333333333334,
+    "violations_per_step_std": 0.0
+  },
+  "rule_based": {
+    "num_seeds": 3,
+    "reward_mean": -16.35549894179894,
+    "reward_std": 0.0,
+    "reward_min": -16.35549894179894,
+    "reward_max": -16.35549894179894,
+    "reward_total_mean": -4906.649682539682,
+    "reward_total_std": 0.0,
+    "violations_mean": 598.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 1.9933333333333334,
+    "violations_per_step_std": 0.0
+  },
+  "static": {
+    "num_seeds": 3,
+    "reward_mean": -16.35549894179894,
+    "reward_std": 0.0,
+    "reward_min": -16.35549894179894,
+    "reward_max": -16.35549894179894,
+    "reward_total_mean": -4906.649682539682,
+    "reward_total_std": 0.0,
+    "violations_mean": 598.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 1.9933333333333334,
+    "violations_per_step_std": 0.0
+  },
+  "random": {
+    "num_seeds": 3,
+    "reward_mean": -16.35549894179894,
+    "reward_std": 0.0,
+    "reward_min": -16.35549894179894,
+    "reward_max": -16.35549894179894,
+    "reward_total_mean": -4906.649682539682,
+    "reward_total_std": 0.0,
+    "violations_mean": 598.0,
+    "violations_std": 0.0,
+    "violations_per_step_mean": 1.9933333333333334,
+    "violations_per_step_std": 0.0
+  }
+}

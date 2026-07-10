@@ -1,0 +1,2 @@
+controller,num_seeds,reward_mean,reward_std,reward_min,reward_max,reward_total_mean,reward_total_std,violations_mean,violations_std,violations_per_step_mean,violations_per_step_std
+rule_based,1,-45.950551222276836,0.0,-45.950551222276836,-45.950551222276836,-2757.03307333661,0.0,120.0,0.0,2.0,0.0
