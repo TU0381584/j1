@@ -141,7 +141,15 @@ mkdir -p "$RESULTS_DIR"
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "[DRY-RUN] cd '$OAI_RAN_DIR/cmake_targets/ran_build/build' && nohup '$NR_SOFTMODEM' -O '$GNB_CONF' --sa --rfsim > '$GNB_LOG' 2>&1 &"
 else
-  ( cd "$OAI_RAN_DIR/cmake_targets/ran_build/build" && nohup "$NR_SOFTMODEM" -O "$GNB_CONF" --sa --rfsim > "$GNB_LOG" 2>&1 & echo $! > "$GNB_PID_FILE" )
+  # cd happens synchronously (not inside the backgrounded job) so that $!
+  # below is nohup's own PID, not an extra forked PID for a backgrounded
+  # `cd ... && nohup ...` compound list (a real bash quirk that bit this
+  # twice during testing -- stop_saclb_live_testbed.sh's pid-file kill was
+  # missing the actual nr-softmodem process by one PID both times).
+  pushd "$OAI_RAN_DIR/cmake_targets/ran_build/build" >/dev/null
+  nohup "$NR_SOFTMODEM" -O "$GNB_CONF" --sa --rfsim > "$GNB_LOG" 2>&1 &
+  echo $! > "$GNB_PID_FILE"
+  popd >/dev/null
   sleep 5
   if ! kill -0 "$(cat "$GNB_PID_FILE")" 2>/dev/null; then
     echo "gNB process died immediately -- check $GNB_LOG"
