@@ -6,7 +6,7 @@ services:
     entrypoint: /bin/bash
     command:
       - -lc
-      - "cd /openairinterface5g && . ./oaienv && cd cmake_targets/ran_build/build && ./nr-uesoftmodem -O /tmp/nr-ue.conf --sa --rfsim -r 106 --numerology 1 --band 78 -C 3619200000 --uicc0.imsi 001010000100001 --uicc0.nssai_sd 000000 --uicc0.dnn internet --uicc0.nssai_sst 1 --rfsimulator.serveraddr 172.22.0.25 --log_config.global_log_options level,nocolor,time"
+      - "cd /openairinterface5g && . ./oaienv && cd cmake_targets/ran_build/build && ./nr-uesoftmodem -O /tmp/nr-ue.conf --sa --rfsim -r 106 --numerology 1 --band 78 -C 3619200000 --uicc0.imsi 001010000100001 --uicc0.nssai_sd 000000 --uicc0.dnn internet --uicc0.nssai_sst 1 --rfsimulator.serveraddr 172.22.0.1 --log_config.global_log_options level,nocolor,time"
     stdin_open: true
     tty: true
     cap_add:
@@ -28,7 +28,7 @@ services:
     entrypoint: /bin/bash
     command:
       - -lc
-      - "cd /openairinterface5g && . ./oaienv && cd cmake_targets/ran_build/build && ./nr-uesoftmodem -O /tmp/nr-ue.conf --sa --rfsim -r 106 --numerology 1 --band 78 -C 3619200000 --uicc0.imsi 001010000100002 --uicc0.nssai_sd 000001 --uicc0.dnn internet --uicc0.nssai_sst 1 --rfsimulator.serveraddr 172.22.0.25 --log_config.global_log_options level,nocolor,time"
+      - "cd /openairinterface5g && . ./oaienv && cd cmake_targets/ran_build/build && ./nr-uesoftmodem -O /tmp/nr-ue.conf --sa --rfsim -r 106 --numerology 1 --band 78 -C 3619200000 --uicc0.imsi 001010000100002 --uicc0.nssai_sd 000001 --uicc0.dnn internet --uicc0.nssai_sst 1 --rfsimulator.serveraddr 172.22.0.1 --log_config.global_log_options level,nocolor,time"
     stdin_open: true
     tty: true
     cap_add:
@@ -50,7 +50,7 @@ services:
     entrypoint: /bin/bash
     command:
       - -lc
-      - "cd /openairinterface5g && . ./oaienv && cd cmake_targets/ran_build/build && ./nr-uesoftmodem -O /tmp/nr-ue.conf --sa --rfsim -r 106 --numerology 1 --band 78 -C 3619200000 --uicc0.imsi 001010000100003 --uicc0.nssai_sd 000002 --uicc0.dnn internet --uicc0.nssai_sst 1 --rfsimulator.serveraddr 172.22.0.25 --log_config.global_log_options level,nocolor,time"
+      - "cd /openairinterface5g && . ./oaienv && cd cmake_targets/ran_build/build && ./nr-uesoftmodem -O /tmp/nr-ue.conf --sa --rfsim -r 106 --numerology 1 --band 78 -C 3619200000 --uicc0.imsi 001010000100003 --uicc0.nssai_sd 000002 --uicc0.dnn internet --uicc0.nssai_sst 1 --rfsimulator.serveraddr 172.22.0.1 --log_config.global_log_options level,nocolor,time"
     stdin_open: true
     tty: true
     cap_add:
