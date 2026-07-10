@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from qoe_oran_framework.config import load_saclb_config
@@ -106,6 +107,42 @@ def test_run_single_propagates_extra_limitations(tmp_path):
         )
     rows = read_omega_jsonl(omega_path)
     assert all("single physical gNB only" in row["limitation"] for row in rows)
+
+
+def test_live_mode_respects_step_cadence(tmp_path):
+    cfg = _cfg(paper2=False)
+    cfg.episode.steps_per_episode = 3
+    cfg.episode.step_seconds = 0.1
+    source = SyntheticKpmSource(seed=12, gnb_ids=cfg.gnb_ids, slice_ids=list(cfg.slice_by_id))
+    env = RANEnv(cfg, source, seed=12)
+    policy = build_policy("lb_only", cfg)
+    omega_path = str(tmp_path / "omega.jsonl")
+    start = time.monotonic()
+    with OmegaLogger(omega_path) as omega:
+        run_single(
+            env, policy, "lb_only", omega, n_episodes=1, seed=12, run_id="test-cadence",
+            mode="live_testbed", training=False, cfg=cfg,
+        )
+    elapsed = time.monotonic() - start
+    assert elapsed >= 0.3 * 0.9  # 3 steps * 0.1s, small tolerance for scheduling jitter
+
+
+def test_offline_mode_does_not_sleep(tmp_path):
+    cfg = _cfg(paper2=False)
+    cfg.episode.steps_per_episode = 3
+    cfg.episode.step_seconds = 5.0  # would be 15s if cadence applied -- must not apply offline
+    source = SyntheticKpmSource(seed=13, gnb_ids=cfg.gnb_ids, slice_ids=list(cfg.slice_by_id))
+    env = RANEnv(cfg, source, seed=13)
+    policy = build_policy("lb_only", cfg)
+    omega_path = str(tmp_path / "omega.jsonl")
+    start = time.monotonic()
+    with OmegaLogger(omega_path) as omega:
+        run_single(
+            env, policy, "lb_only", omega, n_episodes=1, seed=13, run_id="test-no-cadence",
+            mode="offline_synthetic", training=False, cfg=cfg,
+        )
+    elapsed = time.monotonic() - start
+    assert elapsed < 2.0
 
 
 def test_run_mc_produces_one_summary_per_rep(tmp_path):

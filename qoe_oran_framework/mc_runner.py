@@ -5,6 +5,7 @@ rollup, and a structured drift flag for live runs.
 """
 
 import random
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -240,6 +241,7 @@ def run_single(
 
         while True:
             step_idx += 1
+            step_start = time.monotonic() if mode == "live_testbed" else None
             pending = env.pending_requests()
             cluster_state = env.last_cluster_state
             actions, request_states = _select_actions(
@@ -248,6 +250,17 @@ def run_single(
 
             result = env.step(actions)
             next_obs = result.obs
+
+            if step_start is not None:
+                # Respect the configured live step cadence -- without this,
+                # LiveKpmSource's poll()/send_control() round-trip completes
+                # in milliseconds and the loop would hammer the gNB's E2
+                # agent far faster than the papers' Monte-Carlo protocol
+                # (and this run's own episode.step_seconds config) intends.
+                elapsed = time.monotonic() - step_start
+                remaining = cfg.episode.step_seconds - elapsed
+                if remaining > 0:
+                    time.sleep(remaining)
 
             if training and algorithm not in NO_LEARNING_ALGORITHMS:
                 _store_and_train(
