@@ -1,0 +1,83 @@
+[
+  {
+    "run_id": "dqn_live_testbed_seed256_rep0",
+    "algorithm": "dqn",
+    "mode": "live_testbed",
+    "seed": 256,
+    "n_episodes": 4,
+    "mean_reward_per_step": 4.563750000000001,
+    "mean_blocks_per_episode": 0.0,
+    "mean_urllc_blocks_per_episode": 0.0,
+    "blocks_per_episode": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "blocks_per_episode_by_slice": [
+      {},
+      {},
+      {},
+      {}
+    ],
+    "mean_rho": null,
+    "omega_path": "qoe_oran_framework/results/live/dqn/live_testbed/rep_0/omega_log.jsonl",
+    "checkpoint_path": "",
+    "drift_flag": false,
+    "drift_reason": ""
+  },
+  {
+    "run_id": "dqn_live_testbed_seed257_rep1",
+    "algorithm": "dqn",
+    "mode": "live_testbed",
+    "seed": 257,
+    "n_episodes": 4,
+    "mean_reward_per_step": 4.43875,
+    "mean_blocks_per_episode": 0.0,
+    "mean_urllc_blocks_per_episode": 0.0,
+    "blocks_per_episode": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "blocks_per_episode_by_slice": [
+      {},
+      {},
+      {},
+      {}
+    ],
+    "mean_rho": null,
+    "omega_path": "qoe_oran_framework/results/live/dqn/live_testbed/rep_1/omega_log.jsonl",
+    "checkpoint_path": "",
+    "drift_flag": false,
+    "drift_reason": ""
+  },
+  {
+    "run_id": "dqn_live_testbed_seed258_rep2",
+    "algorithm": "dqn",
+    "mode": "live_testbed",
+    "seed": 258,
+    "n_episodes": 4,
+    "mean_reward_per_step": 3.6637500000000003,
+    "mean_blocks_per_episode": 0.0,
+    "mean_urllc_blocks_per_episode": 0.0,
+    "blocks_per_episode": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "blocks_per_episode_by_slice": [
+      {},
+      {},
+      {},
+      {}
+    ],
+    "mean_rho": null,
+    "omega_path": "qoe_oran_framework/results/live/dqn/live_testbed/rep_2/omega_log.jsonl",
+    "checkpoint_path": "",
+    "drift_flag": false,
+    "drift_reason": ""
+  }
+]
