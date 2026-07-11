@@ -90,10 +90,20 @@ def main() -> None:
             policy.load_checkpoint(args.checkpoint)
         return policy
 
+    # run_mc's per-rep omega_log.jsonl path is results_dir/algorithm/mode/rep_N --
+    # it does NOT depend on --run-tag. Two campaigns at different scales (e.g. a
+    # quick smoke run and this full-protocol run) sharing the same --results-dir,
+    # --algorithm, and rep count would silently APPEND into the same file
+    # (OmegaLogger opens in append mode) -- caught this empirically when a
+    # 1x50x60x5s run started writing into a stale 3-rep quick_mc log. Folding
+    # run_tag into the results_dir makes distinct campaigns collision-proof by
+    # construction, not by remembering to pass a different --results-dir.
+    scoped_results_dir = str(Path(args.results_dir) / args.run_tag)
+
     summaries = run_mc(
         cfg, args.algorithm, kpm_source_factory, n_reps=args.n_reps,
         episodes_per_rep=args.episodes, base_seed=args.seed, mode="live_testbed",
-        training=False, results_dir=args.results_dir, policy_factory=policy_factory,
+        training=False, results_dir=scoped_results_dir, policy_factory=policy_factory,
         extra_limitations=extra_limitations,
     )
 
