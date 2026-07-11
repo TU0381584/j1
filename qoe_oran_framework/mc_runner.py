@@ -375,6 +375,7 @@ def run_mc(
     results_dir: str,
     batch_size: int = 16,
     policy_factory: Optional[Callable[[int], Any]] = None,
+    extra_limitations: Optional[List[str]] = None,
 ) -> List[RunSummary]:
     import os
 
@@ -388,11 +389,17 @@ def run_mc(
 
         rep_dir = os.path.join(results_dir, algorithm, mode, f"rep_{rep}")
         omega_path = os.path.join(rep_dir, "omega_log.jsonl")
-        with OmegaLogger(omega_path) as omega:
-            summary = run_single(
-                env, policy, algorithm, omega, episodes_per_rep, seed, run_id, mode, training, cfg,
-                batch_size=batch_size,
-            )
+        try:
+            with OmegaLogger(omega_path) as omega:
+                summary = run_single(
+                    env, policy, algorithm, omega, episodes_per_rep, seed, run_id, mode, training, cfg,
+                    batch_size=batch_size, extra_limitations=extra_limitations,
+                )
+        finally:
+            # Each rep binds fresh sockets for live mode (LiveKpmSource) --
+            # without closing here, a second rep in the same process fails
+            # to re-bind the xApp listen port.
+            env.close()
 
         if training and hasattr(policy, "save_checkpoint"):
             ckpt_path = os.path.join(rep_dir, "checkpoint.pt")

@@ -163,6 +163,29 @@ def test_run_mc_produces_one_summary_per_rep(tmp_path):
     assert Path(summaries[0].checkpoint_path).exists()
 
 
+class _TrackingKpmSource(SyntheticKpmSource):
+    close_count = 0  # class-level: shared across instances created by the factory
+
+    def close(self):
+        _TrackingKpmSource.close_count += 1
+        super().close()
+
+
+def test_run_mc_closes_env_between_reps(tmp_path):
+    cfg = _cfg()
+    cfg.episode.steps_per_episode = 3
+    _TrackingKpmSource.close_count = 0
+
+    def factory(seed):
+        return _TrackingKpmSource(seed=seed, gnb_ids=cfg.gnb_ids, slice_ids=list(cfg.slice_by_id))
+
+    run_mc(
+        cfg, "lb_only", factory, n_reps=3, episodes_per_rep=1, base_seed=20,
+        mode="offline_synthetic", training=False, results_dir=str(tmp_path),
+    )
+    assert _TrackingKpmSource.close_count == 3
+
+
 def test_flag_drift_flags_high_block_rate():
     summary = RunSummary(
         run_id="r", algorithm="dqn", mode="live_testbed", seed=1, n_episodes=5,
