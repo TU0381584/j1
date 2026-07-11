@@ -5,8 +5,8 @@
     "mode": "offline_closed_loop",
     "seed": 256,
     "n_episodes": 300,
-    "mean_reward_per_step": 2.9272857546706215,
-    "mean_blocks_per_episode": 0.6133333333333333,
+    "mean_reward_per_step": 2.1003137257758726,
+    "mean_blocks_per_episode": 0.58,
     "mean_urllc_blocks_per_episode": 0.3333333333333333,
     "blocks_per_episode": [
       59,
@@ -61,19 +61,19 @@
       0,
       0,
       1,
-      2,
-      2,
-      2,
-      1,
       0,
+      1,
       2,
       0,
-      2,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
       1,
       1,
-      1,
-      1,
-      1,
+      0,
       1,
       0,
       2,
@@ -421,43 +421,30 @@
       {
         "urllc": 1
       },
+      {},
       {
-        "embb": 2
-      },
-      {
-        "urllc": 1,
-        "embb": 1
+        "urllc": 1
       },
       {
         "embb": 1,
         "urllc": 1
       },
+      {},
+      {},
+      {},
+      {},
       {
         "embb": 1
       },
       {},
-      {
-        "embb": 2
-      },
       {},
       {
-        "embb": 2
-      },
-      {
         "embb": 1
       },
       {
         "embb": 1
       },
-      {
-        "embb": 1
-      },
-      {
-        "embb": 1
-      },
-      {
-        "embb": 1
-      },
+      {},
       {
         "urllc": 1
       },

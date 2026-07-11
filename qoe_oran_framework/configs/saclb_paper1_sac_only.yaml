@@ -3,19 +3,24 @@ name: saclb_paper1_sac_only
 random_seed: 256
 paper_variant: paper1
 B: 100
-Lmax: 100
+Lmax: 10  # scaled to match tight ratio bounds below -- see saclb_live.yaml comment
 
 gnbs:
   - gnb_id: gnb-0
     prb_capacity: 100
 
+# Ratio bounds tightened to match saclb_live.yaml's calibration against
+# observed real demand (~5 PRB/UE) -- see that file's comment for the
+# measurement and rationale. Offline-only configs (saclb_offline_dqn.yaml)
+# are untouched; this file doubles as both paper #1's offline training
+# config and its live-deployment config (same topology, single gNB).
 slices:
   - slice_id: urllc
     sst: 1
     sd: 1
-    nominal_ratio: 30
-    min_ratio_floor: 5
-    max_ratio_cap: 60
+    nominal_ratio: 3
+    min_ratio_floor: 1
+    max_ratio_cap: 4  # below observed ~5.0 PRB/UE real demand -> permanent scarcity
     latency_budget_ms: 15
     loss_budget_pct: 0.8
     priority_weight: 4.0
@@ -24,9 +29,9 @@ slices:
   - slice_id: embb
     sst: 1
     sd: 0
-    nominal_ratio: 70
-    min_ratio_floor: 10
-    max_ratio_cap: 90
+    nominal_ratio: 3
+    min_ratio_floor: 1
+    max_ratio_cap: 4  # below observed ~5.0 PRB/UE real demand -> permanent scarcity
     latency_budget_ms: 45
     loss_budget_pct: 2.0
     priority_weight: 2.0
@@ -40,7 +45,7 @@ reward:
 arrivals:
   synthetic_arrivals_per_step: 2
   max_pending_per_step: 8
-  ceiling_step_ratio: 5
+  ceiling_step_ratio: 1
 
 episode:
   step_seconds: 5.0

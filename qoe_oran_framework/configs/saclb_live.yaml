@@ -13,19 +13,36 @@ name: saclb_live
 random_seed: 256
 paper_variant: paper2
 B: 100
-Lmax: 100
+# Lmax scaled down to match the tiny PRB quotas below (was 100, calibrated
+# for the original 30-90 ratio range): with a 1-2 PRB/step deficit, a
+# Lmax of 100 would take ~100 steps to ever trip queue_len_norm>1.0 and
+# the reward's violation penalty -- far longer than any of these live
+# runs -- silently making "accept everything" costless regardless of
+# actual backlog. 10 lets a few steps of real deficit matter.
+Lmax: 10
 
 gnbs:
   - gnb_id: gnb-0
     prb_capacity: 100
 
+# Ratio bounds deliberately tight relative to observed real demand: a
+# direct poll() against the live testbed's UEs measured avg_prbs_dl~5.0
+# PRB per UE (out of B=100) under this rig's normal test-traffic load --
+# the *original* bounds here (nominal 30/60/10, cap 60/90/40) left 10-20x
+# headroom above that, so every policy (heuristic or learned) could always
+# accept without ever hitting a real ceiling: zero blocks, no
+# differentiation, confirmed by inspecting per-step decisions directly.
+# Bounds below put the ceiling near or below single-UE real demand, so
+# accept/reject decisions actually constrain real scheduler PRB grants via
+# apply_slicing_ctrl() (oai_ran/openair2/E2_AGENT/e2_message_handlers.c) --
+# genuine live contention, not simulated.
 slices:
   - slice_id: urllc
     sst: 1
     sd: 1
-    nominal_ratio: 30
-    min_ratio_floor: 5
-    max_ratio_cap: 60
+    nominal_ratio: 3
+    min_ratio_floor: 1
+    max_ratio_cap: 4  # below observed ~5.0 PRB/UE real demand -> permanent scarcity, not just transient
     latency_budget_ms: 15
     loss_budget_pct: 0.8
     priority_weight: 4.0
@@ -34,9 +51,9 @@ slices:
   - slice_id: embb
     sst: 1
     sd: 0
-    nominal_ratio: 60
-    min_ratio_floor: 10
-    max_ratio_cap: 90
+    nominal_ratio: 3
+    min_ratio_floor: 1
+    max_ratio_cap: 4  # below observed ~5.0 PRB/UE real demand -> permanent scarcity, not just transient
     latency_budget_ms: 45
     loss_budget_pct: 2.0
     priority_weight: 2.0
@@ -45,9 +62,9 @@ slices:
   - slice_id: mmtc
     sst: 1
     sd: 2
-    nominal_ratio: 10
-    min_ratio_floor: 5
-    max_ratio_cap: 40
+    nominal_ratio: 2
+    min_ratio_floor: 1
+    max_ratio_cap: 3  # below observed ~5.0 PRB/UE real demand
     latency_budget_ms: 65
     loss_budget_pct: 3.5
     priority_weight: 1.0
@@ -61,7 +78,7 @@ reward:
 arrivals:
   synthetic_arrivals_per_step: 2
   max_pending_per_step: 8
-  ceiling_step_ratio: 5
+  ceiling_step_ratio: 1
 
 episode:
   step_seconds: 5.0
