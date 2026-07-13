@@ -120,6 +120,13 @@ class RANEnv:
                 gnb_id, spec.sst, spec.sd, ceiling.min_ratio, ceiling.max_ratio
             )
 
+        rejected_counts: Dict[Tuple[str, str], int] = {}
+        for block in apply_result.primary_blocks:
+            key = (block.gnb_id, block.slice_id)
+            rejected_counts[key] = rejected_counts.get(key, 0) + 1
+        for (gnb_id, slice_id), n_rejected in rejected_counts.items():
+            self.kpm_source.notify_rejected(gnb_id, slice_id, n_rejected)
+
         reward, reward_info = compute_step_reward(
             self._last_cluster_state,
             self.cfg.slice_by_id,

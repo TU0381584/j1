@@ -62,7 +62,8 @@ def aggregate_slice_state(
                 f"gnb={gnb_id} slice={slice_id}: dl_mac_buffer_occupation was 0 for all "
                 "UEs; used (dl_errors + dl_bler) as a backlog proxy for L_k(t)."
             )
-        queue_len_norm = max(0.0, min(2.0, queue_raw / Lmax)) if Lmax > 0 else 0.0
+        raw_queue_len_norm = max(0.0, queue_raw / Lmax) if Lmax > 0 else 0.0
+        queue_len_norm = min(2.0, raw_queue_len_norm)
 
         loss_proxy = (sum(u.dl_bler for u in ues) / len(ues)) if ues else 0.0
 
@@ -75,13 +76,16 @@ def aggregate_slice_state(
             queue_used_fallback=used_fallback,
             loss_proxy=loss_proxy,
             n_ues=len(ues),
+            raw_queue_len_norm=raw_queue_len_norm,
         )
 
-    congestion_level = max(0.0, min(1.0, sum(raw_prb_ratios.values())))
+    raw_congestion_level = max(0.0, sum(raw_prb_ratios.values()))
+    congestion_level = min(1.0, raw_congestion_level)
     if not slice_specs:
         limitations.append(f"gnb={gnb_id}: no slice_specs configured, congestion_level=0.")
     for agg in result.values():
         agg.congestion_level = congestion_level
+        agg.raw_congestion_level = raw_congestion_level
 
     return result, limitations
 
@@ -90,15 +94,21 @@ def compute_fairness_ratio(per_gnb: Dict[str, Dict[str, SliceAggState]]) -> floa
     """F_t: min/max PRB utilisation ratio across the gNB cluster.
 
     Per-gNB utilisation is the sum of that gNB's per-slice prb_used_ratio
-    values (i.e. the same aggregate congestion_level each slice carries).
-    A single-gNB cluster is perfectly balanced by definition (ratio 1.0).
+    values -- using raw_congestion_level (unclipped), NOT the state/reward's
+    clipped-to-[0,1] congestion_level: once >=2 gNBs are each individually
+    oversubscribed past 100%, the clip makes them indistinguishable from each
+    other regardless of how much MORE oversubscribed one is, collapsing this
+    ratio to reflect only the single least-loaded gNB rather than genuine
+    cluster-wide balance (confirmed empirically: two gNBs pinned at exactly
+    congestion_level=1.0 despite ~7% different underlying demand). A
+    single-gNB cluster is perfectly balanced by definition (ratio 1.0).
     """
     if not per_gnb:
         return 1.0
     utilisations = []
     for slice_states in per_gnb.values():
         if slice_states:
-            utilisations.append(next(iter(slice_states.values())).congestion_level)
+            utilisations.append(next(iter(slice_states.values())).raw_congestion_level)
         else:
             utilisations.append(0.0)
     if len(utilisations) <= 1:

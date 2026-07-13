@@ -180,6 +180,16 @@ class LiveKpmSource:
             {"gnb_id": gnb_id, "sst": sst, "sd": sd, "min_ratio": min_ratio, "max_ratio": max_ratio}
         )
 
+    def notify_rejected(self, gnb_id: str, slice_id: str, n_rejected: int) -> None:
+        # No-op on the real rig: a rejected request's actual effect on the
+        # real scheduler's backlog is whatever the next poll() reports back
+        # -- there's no separate "relieve this much backlog" signal to send
+        # over E2 (only slicing_control_m's ratio ceiling exists), unlike
+        # ClosedLoopKpmSource's synthetic model, which needs an explicit
+        # notification because its offered/backlog state is otherwise
+        # entirely decoupled from admission decisions.
+        pass
+
     def close(self) -> None:
         self._recv_sock.close()
         self._send_sock.close()

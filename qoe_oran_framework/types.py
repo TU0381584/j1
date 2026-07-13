@@ -39,6 +39,28 @@ class SliceAggState:
     queue_used_fallback: bool = False
     loss_proxy: float = 0.0        # derived from dl_bler, compared against loss_budget_pct
     n_ues: int = 0
+    # Unclipped version of congestion_level, used only by compute_fairness_ratio.
+    # congestion_level is clipped to [0,1] for state/reward purposes (bounded NN
+    # input, bounded reward magnitude); but once >=2 gNBs are each individually
+    # oversubscribed past 100% (this codebase's per-slice caps deliberately sum
+    # to 110% of one gNB's PRB budget to guarantee persistent scarcity -- see
+    # saclb_offline_dqn.yaml), the [0,1] clip makes them indistinguishable from
+    # each other regardless of how much MORE oversubscribed one is than another
+    # -- collapsing fairness_ratio's min/max computation to reflect only
+    # whichever single gNB happens to be the least loaded, not genuine
+    # cluster-wide balance. raw_congestion_level preserves the real relative
+    # asymmetry for that one computation.
+    raw_congestion_level: float = 0.0
+    # Unclipped version of queue_len_norm, used only by reward.py's continuous
+    # SLA margin. queue_len_norm is clipped to [0,2.0] for state/reward
+    # purposes (bounded NN input); but that means two runs whose backlog is
+    # both deep past the violation threshold (e.g. raw/Lmax of 2.0 vs 20.0)
+    # read back as literally the same clipped value, hiding a real
+    # difference in how badly one is doing versus the other -- confirmed
+    # empirically (DQN's mean mmtc backlog measurably below A2C's, ~170.9 vs
+    # ~171.3, invisible through the clipped value). raw_queue_len_norm
+    # preserves that difference for margin's sake.
+    raw_queue_len_norm: float = 0.0
 
 
 @dataclass

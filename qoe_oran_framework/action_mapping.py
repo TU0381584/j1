@@ -101,6 +101,19 @@ class AdmissionGate:
                 ceiling.max_ratio = min(spec.max_ratio_cap, ceiling.max_ratio + self._step_ratio)
                 accepted_counts[request.slice_id] = accepted_counts.get(request.slice_id, 0) + 1
             else:
+                # Reject also lowers the ceiling toward the floor. Tried
+                # decoupling this (reject only relieves backlog via
+                # KpmSource.notify_rejected(), never touches the ceiling) to
+                # see if it would let SLA compliance differentiate DQN from
+                # A2C -- it didn't move SLA compliance meaningfully, AND it
+                # destabilized A2C's on-policy training into rejecting
+                # urllc/eMBB too (previously a robust, verified 0 blocks),
+                # so reverted back to this coupled behavior. notify_rejected
+                # 's relief still runs alongside this -- it's real,
+                # tested infrastructure, just not sufficient on its own to
+                # make SLA compliance policy-differentiable in this
+                # environment (see saclb_offline_live1gnb.yaml's Lmax
+                # comment for the fuller diagnostic chain).
                 ceiling.max_ratio = max(spec.min_ratio_floor, ceiling.max_ratio - self._step_ratio)
                 primary_blocks.append(
                     BlockEvent(

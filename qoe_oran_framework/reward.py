@@ -43,13 +43,34 @@ REWARD_INTERPRETATION_LIMITATION = (
 
 @dataclass
 class ViolationCheck:
-    """Per-slice SLA violation flags for one step (cluster-wide, OR'd across gNBs)."""
+    """Per-slice SLA violation flags for one step (cluster-wide, OR'd across gNBs).
+
+    margin is the continuous counterpart to violated: 1.0 = comfortably
+    within both the queue and loss budgets, 0.0 = exactly at budget,
+    negative = past budget and NOT clamped -- more negative means more
+    deeply over. violated is equivalent to `margin <= 0.0`, computed
+    independently here as a direct threshold check (kept as its own hard
+    gate, e.g. for a pass/fail acceptance bar).
+
+    margin is deliberately unclamped and uses SliceAggState's raw
+    (unclipped-by-Lmax) queue_len_norm, not the state/reward-facing clipped
+    one: the clipped value bounds backlog reporting to [0,2.0] for NN input
+    purposes, but that means two policies whose backlog is both deep past
+    the violation threshold (e.g. raw/Lmax of 2.0 vs 20.0) would read back
+    as the literal same clipped value -- hiding a real difference in how
+    much worse one is doing than the other. Confirmed needed in practice:
+    DQN's mean mmtc backlog was measurably lower than A2C's (~170.9 vs
+    ~171.3) while both were "0% binary-compliant" after the first episode
+    -- an unclamped, unclipped margin is what actually shows that gap.
+    """
 
     violated: Dict[str, bool]
+    margin: Dict[str, float]
 
 
 def check_violations(cluster_state: ClusterState, slice_specs: Dict[str, SliceSpec]) -> ViolationCheck:
     violated: Dict[str, bool] = {slice_id: False for slice_id in slice_specs}
+    margin: Dict[str, float] = {slice_id: 1.0 for slice_id in slice_specs}
     for slice_states in cluster_state.per_gnb.values():
         for slice_id, agg in slice_states.items():
             if slice_id not in slice_specs:
@@ -59,7 +80,15 @@ def check_violations(cluster_state: ClusterState, slice_specs: Dict[str, SliceSp
             loss_violation = agg.loss_proxy > spec.loss_budget_pct
             if queue_violation or loss_violation:
                 violated[slice_id] = True
-    return ViolationCheck(violated=violated)
+
+            queue_margin = 1.0 - agg.raw_queue_len_norm
+            loss_margin = (
+                1.0 - agg.loss_proxy / spec.loss_budget_pct if spec.loss_budget_pct > 0 else 1.0
+            )
+            # Worst of the two channels, mirroring violated's OR: a slice is
+            # only as compliant as its closer-to-breaching budget.
+            margin[slice_id] = min(margin[slice_id], queue_margin, loss_margin)
+    return ViolationCheck(violated=violated, margin=margin)
 
 
 def _cluster_mean_congestion(cluster_state: ClusterState) -> float:
@@ -110,6 +139,17 @@ def compute_step_reward(
         "mean_congestion": mean_congestion,
         "total_accepted": total_accepted,
         "violated_slices": {k: v for k, v in violations.violated.items() if v},
+        # Full per-slice compliance for THIS step (True = SLA met), every
+        # configured slice present regardless of violation status -- unlike
+        # violated_slices above (which only lists the violated ones), this is
+        # what SLA-compliance-rate reporting needs: a per-slice denominator
+        # over every step, not just the numerator of violations.
+        "per_slice_compliant": {k: not v for k, v in violations.violated.items()},
+        # Continuous counterpart to per_slice_compliant -- see
+        # ViolationCheck's docstring for why this exists alongside the
+        # binary flag (it surfaces graded differences the binary flag
+        # clips away once both compared runs cross the same threshold).
+        "per_slice_sla_margin": dict(violations.margin),
         "reward": reward,
     }
     if include_lb_term:

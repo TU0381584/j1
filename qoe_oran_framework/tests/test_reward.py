@@ -14,9 +14,10 @@ def _state(urllc_queue=0.0, urllc_loss=0.0, fairness=1.0):
         per_gnb={
             "g0": {
                 "urllc": SliceAggState("urllc", "g0", prb_used_ratio=0.3, congestion_level=0.3,
-                                        queue_len_norm=urllc_queue, loss_proxy=urllc_loss),
+                                        queue_len_norm=min(2.0, urllc_queue), loss_proxy=urllc_loss,
+                                        raw_queue_len_norm=urllc_queue),
                 "embb": SliceAggState("embb", "g0", prb_used_ratio=0.2, congestion_level=0.3,
-                                       queue_len_norm=0.0, loss_proxy=0.0),
+                                       queue_len_norm=0.0, loss_proxy=0.0, raw_queue_len_norm=0.0),
             }
         },
         fairness_ratio=fairness,
@@ -36,6 +37,40 @@ def test_queue_violation_flags_slice():
 def test_loss_violation_flags_slice():
     v = check_violations(_state(urllc_loss=5.0), SPECS)  # > loss_budget_pct=0.8
     assert v.violated["urllc"] is True
+
+
+def test_margin_is_graded_not_just_binary():
+    """The whole point of margin: two slices can both be 'violated' (queue
+    over budget, and both clipped to the same queue_len_norm=2.0 -- see
+    kpm_adapter.py) while one was actually much closer to the budget the
+    whole time. margin uses the unclipped raw_queue_len_norm specifically
+    so it can still distinguish them where the clipped state value can't."""
+    v_deep = check_violations(_state(urllc_queue=20.0), SPECS)  # way over budget
+    v_barely = check_violations(_state(urllc_queue=1.01), SPECS)  # just over budget
+    assert v_deep.violated["urllc"] is True
+    assert v_barely.violated["urllc"] is True  # both read as violated, and both
+    # clip to the SAME queue_len_norm=2.0 (min(2.0, 20.0) == min(2.0, would-be
+    # 2.0 if urllc_queue were >=2))... but margin still tells them apart:
+    assert v_deep.margin["urllc"] == 1.0 - 20.0
+    assert abs(v_barely.margin["urllc"] - (1.0 - 1.01)) < 1e-9
+    assert v_deep.margin["urllc"] < v_barely.margin["urllc"]
+
+
+def test_margin_within_budget_is_graded_too():
+    v = check_violations(_state(urllc_queue=0.5), SPECS)
+    assert v.violated["urllc"] is False
+    assert v.margin["urllc"] == 0.5  # 1.0 - 0.5
+
+
+def test_margin_takes_worst_of_queue_and_loss_channels():
+    # queue margin = 1-0.3=0.7, loss margin = 1-(5.0/0.8)=-5.25 -> worst is loss's
+    v = check_violations(_state(urllc_queue=0.3, urllc_loss=5.0), SPECS)
+    assert abs(v.margin["urllc"] - (1.0 - 5.0 / 0.8)) < 1e-9
+
+
+def test_margin_defaults_to_one_for_slice_with_no_observed_state():
+    v = check_violations(_state(), SPECS)
+    assert v.margin["embb"] == 1.0
 
 
 def test_paper1_reward_has_no_lb_term():

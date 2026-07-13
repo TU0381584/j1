@@ -6,6 +6,7 @@ from qoe_oran_framework.mc_runner import build_policy, flag_drift, run_mc, run_s
 from qoe_oran_framework.omega_logger import OmegaLogger, read_omega_jsonl
 from qoe_oran_framework.env import RANEnv
 from qoe_oran_framework.replay_kpm_source import SyntheticKpmSource
+from qoe_oran_framework.types import UeSample
 
 CONFIGS_DIR = Path(__file__).resolve().parent.parent / "configs"
 
@@ -44,6 +45,19 @@ def test_run_single_dqn_training_two_episodes(tmp_path):
     assert all(row["limitation"] for row in rows)
     assert all(row["mode"] == "offline_synthetic" for row in rows)
 
+    # Regression guard: every episode must contain a full steps_per_episode
+    # worth of step rows (plus one rollup row), not just episode 1. A prior
+    # bug called env.reset() once before the episode loop instead of once
+    # per episode, so _step_in_episode climbed past steps_per_episode
+    # forever after episode 1 and every later "episode" ended on its first
+    # step -- silently invalidating every multi-episode run this produced.
+    per_episode_step_rows = {}
+    for row in rows:
+        if row["step"] == -1:
+            continue
+        per_episode_step_rows[row["episode"]] = per_episode_step_rows.get(row["episode"], 0) + 1
+    assert per_episode_step_rows == {1: 5, 2: 5}
+
 
 def test_run_single_lb_only_requires_no_training(tmp_path):
     cfg = _cfg()
@@ -59,6 +73,75 @@ def test_run_single_lb_only_requires_no_training(tmp_path):
         )
     assert summary.algorithm == "lb_only"
     assert summary.checkpoint_path == ""
+
+
+class _FixedViolationKpmSource:
+    """Deterministic KpmSource: urllc always over its queue budget (guaranteed
+    SLA violation every step), embb/mmtc always clean (guaranteed compliant)
+    -- lets sla_compliance_by_slice be asserted exactly rather than just
+    checked for presence."""
+
+    _SD_FOR_SLICE = {"embb": 0, "urllc": 1, "mmtc": 2}
+
+    def __init__(self, gnb_ids, slice_ids):
+        self._gnb_ids = gnb_ids
+        self._slice_ids = slice_ids
+        self.sent_controls = []
+
+    def poll(self):
+        samples = []
+        rnti = 0
+        for gnb_id in self._gnb_ids:
+            for slice_id in self._slice_ids:
+                rnti += 1
+                queue = 200.0 if slice_id == "urllc" else 0.0
+                samples.append(UeSample(
+                    rnti=rnti, timestamp_s=0.0, nssai_sst=1, nssai_sd=self._SD_FOR_SLICE[slice_id],
+                    avg_prbs_dl=1.0, gnb_id=gnb_id, dl_mac_buffer_occupation=queue,
+                    dl_errors=0.0, dl_bler=0.0,
+                ))
+        return samples
+
+    def send_control(self, gnb_id, sst, sd, min_ratio, max_ratio):
+        self.sent_controls.append((gnb_id, sst, sd, min_ratio, max_ratio))
+
+    def close(self):
+        pass
+
+
+def test_run_single_tracks_sla_compliance_per_slice_and_all_slices(tmp_path):
+    cfg = _cfg()
+    cfg.episode.steps_per_episode = 5
+    source = _FixedViolationKpmSource(gnb_ids=cfg.gnb_ids, slice_ids=list(cfg.slice_by_id))
+    env = RANEnv(cfg, source, seed=7)
+    policy = build_policy("lb_only", cfg)
+    omega_path = str(tmp_path / "omega.jsonl")
+    with OmegaLogger(omega_path) as omega:
+        summary = run_single(
+            env, policy, "lb_only", omega, n_episodes=2, seed=7, run_id="test-sla",
+            mode="offline_synthetic", training=False, cfg=cfg,
+        )
+    assert summary.sla_compliance_by_slice["urllc"] == 0.0
+    assert summary.sla_compliance_by_slice["embb"] == 1.0
+    assert summary.sla_compliance_by_slice["mmtc"] == 1.0
+    assert summary.sla_compliance_all_slices == 0.0  # urllc always violates -> joint never compliant
+    assert len(summary.sla_compliance_by_slice_per_episode) == 2
+
+    # Continuous margin uses the unclipped raw_queue_len_norm (200/Lmax=100
+    # = 2.0), so it reads -1.0 (1.0-2.0), not just "clipped to 0" -- this is
+    # exactly the point: it keeps distinguishing severity past the
+    # violation threshold instead of flattening it away.
+    assert summary.sla_margin_by_slice["urllc"] == -1.0
+    assert summary.sla_margin_by_slice["embb"] == 1.0
+    assert summary.sla_margin_by_slice["mmtc"] == 1.0
+    assert len(summary.sla_margin_by_slice_per_episode) == 2
+
+    rows = read_omega_jsonl(omega_path)
+    step_rows = [r for r in rows if r["step"] != -1]
+    assert all(r["evidence"]["per_slice_compliant"]["urllc"] is False for r in step_rows)
+    assert all(r["evidence"]["per_slice_compliant"]["embb"] is True for r in step_rows)
+    assert all(r["evidence"]["per_slice_sla_margin"]["urllc"] == -1.0 for r in step_rows)
+    assert all(r["evidence"]["per_slice_sla_margin"]["embb"] == 1.0 for r in step_rows)
 
 
 def test_run_single_a2c_on_policy(tmp_path):

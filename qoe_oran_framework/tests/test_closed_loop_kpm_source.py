@@ -48,6 +48,40 @@ def test_raising_ceiling_relieves_backlog():
     assert backlog_relieved[-1] < backlog_low[-1]
 
 
+def test_notify_rejected_relieves_backlog_beyond_what_ceiling_alone_would():
+    """Reject must give admission decisions real leverage over a slice's own
+    SLA compliance, not just block rate -- confirmed missing before this
+    fix (DQN/A2C showed byte-identical SLA-compliance numbers across a 10x
+    Lmax sweep, because send_control()'s ceiling-only path can only ever
+    make backlog worse or leave it unchanged, never actively relieve it)."""
+    source_a = ClosedLoopKpmSource(
+        seed=4, gnb_ids=["g0"], slice_ids=["urllc"],
+        mean_offered_ratio={"urllc": 0.3}, offered_volatility=0.01,
+    )
+    source_a.send_control("g0", 1, 1, min_ratio=5, max_ratio=10)  # below offered demand (~30)
+    _, backlog_a = _served_and_backlog(source_a, "g0", "urllc", 10)
+
+    source_b = ClosedLoopKpmSource(
+        seed=4, gnb_ids=["g0"], slice_ids=["urllc"],
+        mean_offered_ratio={"urllc": 0.3}, offered_volatility=0.01,
+    )
+    source_b.send_control("g0", 1, 1, min_ratio=5, max_ratio=10)
+    for _ in range(10):
+        source_b.notify_rejected("g0", "urllc", n_rejected=1)
+        source_b.poll()
+    backlog_b = source_b._backlog[("g0", "urllc")]
+
+    assert backlog_b < backlog_a[-1]
+
+
+def test_notify_rejected_ignores_unknown_key_and_nonpositive_count():
+    source = ClosedLoopKpmSource(seed=5, gnb_ids=["g0"], slice_ids=["urllc"])
+    source.notify_rejected("unknown-gnb", "urllc", n_rejected=5)
+    source.notify_rejected("g0", "urllc", n_rejected=0)
+    source.poll()  # must not raise, and backlog stays at its natural value
+    assert source._pending_relief[("g0", "urllc")] == 0.0
+
+
 def test_bler_rises_with_backlog():
     source = ClosedLoopKpmSource(
         seed=4, gnb_ids=["g0"], slice_ids=["urllc"],

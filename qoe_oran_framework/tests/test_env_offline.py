@@ -88,6 +88,25 @@ def test_rejecting_everything_produces_primary_blocks():
     assert result.info["primary_block_count"] == len(pending)
 
 
+def test_step_notifies_kpm_source_of_rejections_grouped_by_gnb_and_slice():
+    cfg = load_saclb_config(str(CONFIGS_DIR / "saclb_paper1_sac_only.yaml"))
+    source = SyntheticKpmSource(seed=3, gnb_ids=cfg.gnb_ids, slice_ids=list(cfg.slice_by_id))
+    calls = []
+    source.notify_rejected = lambda gnb_id, slice_id, n_rejected: calls.append((gnb_id, slice_id, n_rejected))
+    env = RANEnv(cfg, source, seed=3)
+    env.reset()
+    pending = env.pending_requests()
+    env.step([0] * len(pending))  # reject everything pending this step
+
+    by_key = {}
+    for gnb_id, slice_id, n in calls:
+        by_key[(gnb_id, slice_id)] = by_key.get((gnb_id, slice_id), 0) + n
+    expected = {}
+    for req in pending:
+        expected[(req.gnb_id, req.slice_id)] = expected.get((req.gnb_id, req.slice_id), 0) + 1
+    assert by_key == expected
+
+
 def test_episode_ends_after_configured_steps():
     cfg = load_saclb_config(str(CONFIGS_DIR / "saclb_paper1_sac_only.yaml"))
     cfg.episode.steps_per_episode = 3

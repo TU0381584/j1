@@ -45,9 +45,9 @@ slices:
     max_ratio_cap: 4  # below observed ~5.0 PRB/UE real demand -> permanent scarcity, not just transient
     latency_budget_ms: 15
     loss_budget_pct: 0.8
-    priority_weight: 4.0
+    priority_weight: 12.0  # synced to saclb_offline_live1gnb.yaml's safety-margin weights (was 4.0)
     accept_reward: 1.0
-    violation_penalty: 2.0
+    violation_penalty: 10.0
   - slice_id: embb
     sst: 1
     sd: 0
@@ -56,9 +56,9 @@ slices:
     max_ratio_cap: 4  # below observed ~5.0 PRB/UE real demand -> permanent scarcity, not just transient
     latency_budget_ms: 45
     loss_budget_pct: 2.0
-    priority_weight: 2.0
+    priority_weight: 3.5  # synced to saclb_offline_live1gnb.yaml's safety-margin weights (was 2.0)
     accept_reward: 1.0
-    violation_penalty: 1.0
+    violation_penalty: 5.0
   - slice_id: mmtc
     sst: 1
     sd: 2
@@ -67,12 +67,18 @@ slices:
     max_ratio_cap: 3  # below observed ~5.0 PRB/UE real demand
     latency_budget_ms: 65
     loss_budget_pct: 3.5
-    priority_weight: 1.0
+    priority_weight: 0.3  # synced to saclb_offline_live1gnb.yaml's safety-margin weights (was 1.0)
     accept_reward: 1.0
-    violation_penalty: 0.5
+    violation_penalty: 2.5
 
+# congestion_coeff=1.5, violation_penalty raised ~5x per slice above --
+# matches the same retuning applied to saclb_offline_dqn.yaml (see that
+# file's comment for the full rationale and the congestion_coeff=6.0->1.5
+# recalibration story). Kept identical to the offline training config so a
+# checkpoint's learned value function stays meaningful against the reward
+# actually reported/logged here at live-eval time.
 reward:
-  congestion_coeff: 1.0
+  congestion_coeff: 1.5
   lb_coeff: 1.0
 
 arrivals:

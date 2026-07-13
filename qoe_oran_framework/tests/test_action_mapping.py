@@ -38,6 +38,14 @@ def test_accept_nudges_ceiling_up_bounded_by_cap():
 
 
 def test_reject_nudges_ceiling_down_bounded_by_floor_and_counts_primary_block():
+    """Reject both lowers the ceiling toward the floor AND (via
+    KpmSource.notify_rejected(), wired in env.py) relieves backlog on the
+    demand side. Tried decoupling these (reject only relieves backlog,
+    never touches the ceiling) to see if it would help SLA compliance
+    differentiate DQN from A2C -- it didn't move SLA compliance
+    meaningfully, and it destabilized A2C's training into rejecting
+    urllc/eMBB too (previously a robust, verified 0 blocks) -- so this
+    stays coupled. See action_mapping.py's apply() comment."""
     gate = AdmissionGate(SPECS, ["g0"], step_ratio=5)
     req = AdmissionRequest("r1", "urllc", "g0", arrival_step=1)
     result = gate.apply([req], [0], _empty_cluster_state(), step=1)

@@ -76,16 +76,28 @@ def test_empty_slice_groups_still_produce_zeroed_entries():
 
 
 def test_fairness_ratio_single_gnb_is_one():
-    per_gnb = {"g0": {"urllc": type("A", (), {"congestion_level": 0.5})()}}
+    per_gnb = {"g0": {"urllc": type("A", (), {"raw_congestion_level": 0.5})()}}
     assert compute_fairness_ratio(per_gnb) == 1.0
 
 
 def test_fairness_ratio_min_over_max_across_gnbs():
     per_gnb = {
-        "g0": {"urllc": type("A", (), {"congestion_level": 0.3})()},
-        "g1": {"urllc": type("A", (), {"congestion_level": 0.6})()},
+        "g0": {"urllc": type("A", (), {"raw_congestion_level": 0.3})()},
+        "g1": {"urllc": type("A", (), {"raw_congestion_level": 0.6})()},
     }
     assert compute_fairness_ratio(per_gnb) == 0.5
+
+
+def test_fairness_ratio_uses_unclipped_congestion_not_the_state_feature():
+    """Two gNBs both individually oversubscribed past 100% (congestion_level
+    clipped to 1.0 for both, indistinguishable) must still show up as
+    distinct via raw_congestion_level -- this is the fix for fairness_ratio
+    degenerating to a single-gNB signal once >=2 gNBs saturate the clip."""
+    per_gnb = {
+        "g0": {"urllc": type("A", (), {"congestion_level": 1.0, "raw_congestion_level": 1.10})()},
+        "g1": {"urllc": type("A", (), {"congestion_level": 1.0, "raw_congestion_level": 1.375})()},
+    }
+    assert compute_fairness_ratio(per_gnb) == 1.10 / 1.375
 
 
 def test_build_cluster_state_routes_samples_by_gnb_id():

@@ -23,7 +23,16 @@ PAPER_TABLE_I_DQN_DEFAULTS = dict(
     learning_rate=0.001,
     epsilon_start=1.0,
     epsilon_end=0.05,
-    epsilon_decay=0.995,
+    # 0.985 applied once per EPISODE (see on_episode_end): reaches the 0.05
+    # floor by ~episode 200 of a 300-episode run, leaving the last third of
+    # training as genuine low-epsilon consolidation. The paper's own 0.995
+    # figure, applied per episode instead, doesn't reach the floor until
+    # episode ~600 -- i.e. epsilon is still ~0.22 at the end of a 300-episode
+    # run and the policy never gets a real exploit-and-consolidate phase.
+    # Since the paper doesn't specify per-step vs per-episode granularity for
+    # this constant, 0.985 is our own calibration choice to fit Table I's
+    # published 300-episode schedule specifically.
+    epsilon_decay=0.985,
 )
 
 
@@ -36,19 +45,39 @@ class DQNAdmissionPolicy(DQNPolicy):
         **overrides,
     ):
         params = {**PAPER_TABLE_I_DQN_DEFAULTS, **overrides}
+        # oranslice_drl.DQNPolicy.train_step() decays epsilon internally on
+        # every call -- fine for its original per-ratio-decision loop, but
+        # mc_runner calls train_step() once per *environment step* here (not
+        # once per episode), and a step contains several pending-request
+        # decisions. At epsilon_decay=0.995 applied per step, epsilon hits
+        # its floor (0.05) after ~598 steps -- under 10 of a 300-episode run
+        # (60 steps/episode) -- so ~97% of training happens post-floor,
+        # nearly greedy the whole time. Table I's other per-episode-scheduled
+        # hyperparameter (target update every 10 episodes) strongly suggests
+        # the decay was meant to run on the same per-episode clock, where
+        # 0.995 still leaves epsilon ~0.22 at episode 300 -- real exploration
+        # across the whole run, not just the first few percent of it. Freeze
+        # the base class's per-call decay (epsilon_decay=1.0 passed below)
+        # and apply the real per-episode decay explicitly in on_episode_end().
+        self._per_episode_epsilon_decay = params.pop("epsilon_decay")
         super().__init__(
             state_dim=state_dim,
             action_dim=2,
             n_branches=1,
             hidden_dim=hidden_dim,
             device=device,
+            epsilon_decay=1.0,
             **params,
         )
 
     def on_episode_end(self) -> None:
-        """Table I: target update every 10 episodes. Called explicitly by
-        mc_runner at episode boundaries, on top of (not instead of) the
-        base class's every-100-train-step safety-net sync -- redundant
-        syncing is harmless, it just means the target network can only be
-        *more* current than the paper's schedule, never staler."""
+        """Table I: target update every 10 episodes, epsilon decay per
+        episode (see __init__ comment for why both must run on the episode
+        clock rather than the base class's per-train_step-call clock).
+        Called explicitly by mc_runner at episode boundaries, on top of
+        (not instead of) the base class's every-100-train-step safety-net
+        target sync -- redundant syncing is harmless, it just means the
+        target network can only be *more* current than the paper's
+        schedule, never staler."""
         self.target_network.load_state_dict(self.q_network.state_dict())
+        self.epsilon = max(self.epsilon_end, self.epsilon * self._per_episode_epsilon_decay)

@@ -74,6 +74,29 @@ class RunSummary:
     checkpoint_path: str = ""
     drift_flag: bool = False
     drift_reason: str = ""
+    # SLA compliance: fraction of steps (0.0-1.0) each slice was NOT in
+    # violation (queue_len_norm<=1.0 AND loss_proxy<=loss_budget_pct -- see
+    # reward.check_violations), averaged across episodes. Distinct from
+    # block rate: a request can be accepted (not blocked) yet its slice can
+    # still be in SLA violation this step (backlog/loss already over
+    # budget from earlier accepts), and vice versa.
+    sla_compliance_by_slice: Dict[str, float] = field(default_factory=dict)
+    # Stricter joint measure: fraction of steps where EVERY configured
+    # slice was simultaneously compliant (not just each slice's own
+    # marginal rate) -- the "slice-wide" network-level number.
+    sla_compliance_all_slices: float = 0.0
+    sla_compliance_by_slice_per_episode: List[Dict[str, float]] = field(default_factory=list)
+    # Continuous counterpart to sla_compliance_by_slice: mean per-slice SLA
+    # margin (1.0 = comfortably within budget, 0.0 = at/beyond budget,
+    # in between = graded distance -- see reward.ViolationCheck's
+    # docstring). Exists because the binary compliance rate above can tie
+    # two policies that both cross the violation threshold while one was
+    # actually managing the slice's backlog/loss meaningfully better the
+    # whole time -- confirmed happening in practice (DQN's mean mmtc
+    # backlog measurably lower than A2C's, ~171 vs ~171.3, while both read
+    # as 0% binary-compliant after the first episode).
+    sla_margin_by_slice: Dict[str, float] = field(default_factory=dict)
+    sla_margin_by_slice_per_episode: List[Dict[str, float]] = field(default_factory=list)
 
 
 def build_policy(algorithm: str, cfg: SacLbExperimentConfig, **overrides):
@@ -231,12 +254,27 @@ def run_single(
     episode_block_totals: List[int] = []
     episode_block_by_slice: List[Dict[str, int]] = []
     episode_rho_means: List[Optional[float]] = []
+    episode_sla_compliance_by_slice: List[Dict[str, float]] = []
+    episode_sla_compliance_all_slices: List[float] = []
+    episode_sla_margin_by_slice: List[Dict[str, float]] = []
 
-    obs = env.reset()
     for episode_idx in range(1, n_episodes + 1):
+        # reset() must run at the top of every episode, not just once before
+        # the loop: it's what zeroes _step_in_episode and re-arms the
+        # admission gate's ceilings. Without a per-episode reset, episode 1
+        # runs the full steps_per_episode as intended, but _step_in_episode
+        # keeps climbing past steps_per_episode forever after -- so every
+        # later "episode" hits done=True on its very first step. UE/KPM
+        # state is not reinitialized here (continuous real traffic), only
+        # the RL bookkeeping -- matching the live-testbed semantics where a
+        # physical gNB can't be reset like a simulator.
+        obs = env.reset()
         step_rewards: List[float] = []
         block_by_slice: Dict[str, int] = {}
         rho_values: List[float] = []
+        compliant_steps_by_slice: Dict[str, int] = {slice_id: 0 for slice_id in cfg.slice_by_id}
+        all_slices_compliant_steps = 0
+        sla_margin_sum_by_slice: Dict[str, float] = {slice_id: 0.0 for slice_id in cfg.slice_by_id}
         step_idx = 0
 
         while True:
@@ -273,6 +311,17 @@ def run_single(
                 block_by_slice[block["slice_id"]] = block_by_slice.get(block["slice_id"], 0) + 1
             rho_values.append(result.info["fairness_ratio"])
 
+            per_slice_compliant = result.info["reward_breakdown"].get("per_slice_compliant", {})
+            for slice_id, compliant in per_slice_compliant.items():
+                if compliant:
+                    compliant_steps_by_slice[slice_id] = compliant_steps_by_slice.get(slice_id, 0) + 1
+            if per_slice_compliant and all(per_slice_compliant.values()):
+                all_slices_compliant_steps += 1
+
+            per_slice_sla_margin = result.info["reward_breakdown"].get("per_slice_sla_margin", {})
+            for slice_id, margin in per_slice_sla_margin.items():
+                sla_margin_sum_by_slice[slice_id] = sla_margin_sum_by_slice.get(slice_id, 0.0) + margin
+
             evidence = {
                 "seed": seed,
                 "reward": result.reward,
@@ -281,6 +330,8 @@ def run_single(
                 "accepted_counts": result.info["accepted_counts"],
                 "fairness_ratio": result.info["fairness_ratio"],
                 "n_pending": len(pending),
+                "per_slice_compliant": per_slice_compliant,
+                "per_slice_sla_margin": per_slice_sla_margin,
             }
             omega.log(
                 _make_omega_tuple(
@@ -305,6 +356,20 @@ def run_single(
         episode_rho_mean = float(np.mean(rho_values)) if len(cfg.gnbs) > 1 and rho_values else None
         episode_rho_means.append(episode_rho_mean)
 
+        episode_steps = step_idx
+        episode_sla_by_slice = {
+            slice_id: (compliant_steps_by_slice.get(slice_id, 0) / episode_steps if episode_steps else 1.0)
+            for slice_id in cfg.slice_by_id
+        }
+        episode_sla_all = all_slices_compliant_steps / episode_steps if episode_steps else 1.0
+        episode_sla_compliance_by_slice.append(episode_sla_by_slice)
+        episode_sla_compliance_all_slices.append(episode_sla_all)
+        episode_margin_by_slice = {
+            slice_id: (sla_margin_sum_by_slice.get(slice_id, 0.0) / episode_steps if episode_steps else 1.0)
+            for slice_id in cfg.slice_by_id
+        }
+        episode_sla_margin_by_slice.append(episode_margin_by_slice)
+
         omega.log(
             _make_omega_tuple(
                 algorithm, cfg,
@@ -314,6 +379,9 @@ def run_single(
                     "episode_block_total": episode_block_total,
                     "episode_block_by_slice": block_by_slice,
                     "episode_mean_rho": episode_rho_mean,
+                    "episode_sla_compliance_by_slice": episode_sla_by_slice,
+                    "episode_sla_compliance_all_slices": episode_sla_all,
+                    "episode_sla_margin_by_slice": episode_margin_by_slice,
                     "rollup": True,
                 },
                 extra_limitations,
@@ -323,6 +391,18 @@ def run_single(
 
     rho_vals = [r for r in episode_rho_means if r is not None]
     urllc_blocks = [d.get("urllc", 0) for d in episode_block_by_slice]
+
+    sla_compliance_by_slice = {
+        slice_id: float(np.mean([e.get(slice_id, 1.0) for e in episode_sla_compliance_by_slice]))
+        for slice_id in cfg.slice_by_id
+    } if episode_sla_compliance_by_slice else {}
+    sla_compliance_all_slices = (
+        float(np.mean(episode_sla_compliance_all_slices)) if episode_sla_compliance_all_slices else 1.0
+    )
+    sla_margin_by_slice = {
+        slice_id: float(np.mean([e.get(slice_id, 1.0) for e in episode_sla_margin_by_slice]))
+        for slice_id in cfg.slice_by_id
+    } if episode_sla_margin_by_slice else {}
 
     summary = RunSummary(
         run_id=run_id,
@@ -337,6 +417,11 @@ def run_single(
         blocks_per_episode_by_slice=episode_block_by_slice,
         mean_rho=float(np.mean(rho_vals)) if rho_vals else None,
         omega_path=str(omega.path),
+        sla_compliance_by_slice=sla_compliance_by_slice,
+        sla_compliance_all_slices=sla_compliance_all_slices,
+        sla_compliance_by_slice_per_episode=episode_sla_compliance_by_slice,
+        sla_margin_by_slice=sla_margin_by_slice,
+        sla_margin_by_slice_per_episode=episode_sla_margin_by_slice,
     )
     if mode == "live_testbed":
         summary.drift_flag, summary.drift_reason = flag_drift(summary)

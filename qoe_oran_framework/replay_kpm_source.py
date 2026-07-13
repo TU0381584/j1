@@ -16,6 +16,7 @@ from .types import UeSample
 class KpmSource(Protocol):
     def poll(self) -> List[UeSample]: ...
     def send_control(self, gnb_id: str, sst: int, sd: int, min_ratio: int, max_ratio: int) -> None: ...
+    def notify_rejected(self, gnb_id: str, slice_id: str, n_rejected: int) -> None: ...
     def close(self) -> None: ...
 
 
@@ -54,6 +55,9 @@ class ReplayKpmSource:
         self.sent_controls.append(
             {"gnb_id": gnb_id, "sst": sst, "sd": sd, "min_ratio": min_ratio, "max_ratio": max_ratio}
         )
+
+    def notify_rejected(self, gnb_id: str, slice_id: str, n_rejected: int) -> None:
+        pass  # a fixed trace replay can't respond to admission decisions at all
 
     def close(self) -> None:
         pass
@@ -124,6 +128,9 @@ class SyntheticKpmSource:
         self.sent_controls.append(
             {"gnb_id": gnb_id, "sst": sst, "sd": sd, "min_ratio": min_ratio, "max_ratio": max_ratio}
         )
+
+    def notify_rejected(self, gnb_id: str, slice_id: str, n_rejected: int) -> None:
+        pass  # open-loop by design -- see class docstring; nothing feeds back regardless
 
     def close(self) -> None:
         pass
@@ -201,6 +208,7 @@ class ClosedLoopKpmSource:
         self._backlog: Dict[tuple, float] = {}
         self._ceiling_ratio: Dict[tuple, float] = {}
         self._ues: Dict[tuple, List[int]] = {}
+        self._pending_relief: Dict[tuple, float] = {}
         self._rnti_counter = 0
         self._t = 0.0
         self.sent_controls: List[Dict[str, Any]] = []
@@ -212,6 +220,7 @@ class ClosedLoopKpmSource:
                 self._backlog[key] = 0.0
                 self._ceiling_ratio[key] = initial_ceiling_ratio
                 self._ues[key] = [self._next_rnti() for _ in range(ues_per_slice)]
+                self._pending_relief[key] = 0.0
 
     @staticmethod
     def _default_gnb_load_multiplier(gnb_ids: List[str], seed: int = 0) -> Dict[str, float]:
@@ -238,6 +247,18 @@ class ClosedLoopKpmSource:
                 noise = self._rng.normal(0.0, self._offered_volatility * self._B)
                 self._offered[key] = max(0.0, self._offered[key] + drift + noise)
                 offered = self._offered[key]
+
+                # A rejected admission request's traffic is turned away, not
+                # merely capped -- relieve that much of the CARRIED backlog
+                # before computing this step's demand, so reject has a real,
+                # direct effect on this slice's own future SLA compliance
+                # (not just on the serving ceiling, which by itself can only
+                # ever make backlog worse, never better -- see
+                # notify_rejected()'s docstring for the fuller rationale).
+                relief = self._pending_relief.get(key, 0.0)
+                if relief > 0.0:
+                    self._backlog[key] = max(0.0, self._backlog[key] - relief)
+                    self._pending_relief[key] = 0.0
 
                 ceiling_prb = self._ceiling_ratio[key] / 100.0 * self._B
                 demand = offered + self._backlog[key]
@@ -279,6 +300,32 @@ class ClosedLoopKpmSource:
         key = (gnb_id, slice_id)
         if key in self._ceiling_ratio:
             self._ceiling_ratio[key] = float(max_ratio)
+
+    def notify_rejected(self, gnb_id: str, slice_id: str, n_rejected: int) -> None:
+        """A rejected admission request's traffic leaves the system rather
+        than merely failing to raise the serving ceiling.
+
+        Without this, admission decisions had real leverage over block rate
+        but essentially none over that same slice's own backlog-based SLA
+        compliance: send_control() only ever adjusts the ceiling, and
+        poll()'s demand/served/backlog loop only checks the ceiling against
+        (offered + carried backlog) -- rejecting doesn't reduce either of
+        those inputs, so a slice's SLA compliance was identical regardless
+        of how it was admitted, confirmed empirically (DQN and A2C showed
+        byte-identical SLA-compliance numbers despite very different block
+        rates, across a 10x Lmax sweep). This method lets a reject relieve
+        (queued at self._pending_relief, applied at the next poll(), before
+        that step's demand is computed) an amount of backlog proportional to
+        the rejected request's own recent per-UE demand -- so a policy that
+        actually turns away traffic (not just refuses to expand capacity for
+        it) can measurably improve that slice's own future SLA compliance.
+        """
+        key = (gnb_id, slice_id)
+        if key not in self._offered or n_rejected <= 0:
+            return
+        n_ues = max(1, len(self._ues[key]))
+        per_request_demand = self._offered[key] / n_ues
+        self._pending_relief[key] = self._pending_relief.get(key, 0.0) + n_rejected * per_request_demand
 
     def close(self) -> None:
         pass

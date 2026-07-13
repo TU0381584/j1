@@ -1,0 +1,221 @@
+[
+  {
+    "run_id": "dqn_live_testbed_seed256_rep0",
+    "algorithm": "dqn",
+    "mode": "live_testbed",
+    "seed": 256,
+    "n_episodes": 50,
+    "mean_reward_per_step": 3.693491666666667,
+    "mean_blocks_per_episode": 40.28,
+    "mean_urllc_blocks_per_episode": 0.0,
+    "blocks_per_episode": [
+      43,
+      40,
+      42,
+      36,
+      53,
+      43,
+      45,
+      45,
+      44,
+      40,
+      41,
+      45,
+      39,
+      41,
+      35,
+      38,
+      34,
+      38,
+      39,
+      42,
+      48,
+      37,
+      45,
+      39,
+      37,
+      40,
+      43,
+      44,
+      42,
+      36,
+      48,
+      30,
+      31,
+      38,
+      34,
+      37,
+      34,
+      36,
+      45,
+      42,
+      37,
+      45,
+      46,
+      33,
+      42,
+      44,
+      32,
+      39,
+      43,
+      44
+    ],
+    "blocks_per_episode_by_slice": [
+      {
+        "mmtc": 43
+      },
+      {
+        "mmtc": 40
+      },
+      {
+        "mmtc": 42
+      },
+      {
+        "mmtc": 36
+      },
+      {
+        "mmtc": 53
+      },
+      {
+        "mmtc": 43
+      },
+      {
+        "mmtc": 45
+      },
+      {
+        "mmtc": 45
+      },
+      {
+        "mmtc": 44
+      },
+      {
+        "mmtc": 40
+      },
+      {
+        "mmtc": 41
+      },
+      {
+        "mmtc": 45
+      },
+      {
+        "mmtc": 39
+      },
+      {
+        "mmtc": 41
+      },
+      {
+        "mmtc": 35
+      },
+      {
+        "mmtc": 38
+      },
+      {
+        "mmtc": 34
+      },
+      {
+        "mmtc": 38
+      },
+      {
+        "mmtc": 39
+      },
+      {
+        "mmtc": 42
+      },
+      {
+        "mmtc": 48
+      },
+      {
+        "mmtc": 37
+      },
+      {
+        "mmtc": 45
+      },
+      {
+        "mmtc": 39
+      },
+      {
+        "mmtc": 37
+      },
+      {
+        "mmtc": 40
+      },
+      {
+        "mmtc": 43
+      },
+      {
+        "mmtc": 44
+      },
+      {
+        "mmtc": 42
+      },
+      {
+        "mmtc": 36
+      },
+      {
+        "mmtc": 48
+      },
+      {
+        "mmtc": 30
+      },
+      {
+        "mmtc": 31
+      },
+      {
+        "mmtc": 38
+      },
+      {
+        "mmtc": 34
+      },
+      {
+        "mmtc": 37
+      },
+      {
+        "mmtc": 34
+      },
+      {
+        "mmtc": 36
+      },
+      {
+        "mmtc": 45
+      },
+      {
+        "mmtc": 42
+      },
+      {
+        "mmtc": 37
+      },
+      {
+        "mmtc": 45
+      },
+      {
+        "mmtc": 46
+      },
+      {
+        "mmtc": 33
+      },
+      {
+        "mmtc": 42
+      },
+      {
+        "mmtc": 44
+      },
+      {
+        "mmtc": 32
+      },
+      {
+        "mmtc": 39
+      },
+      {
+        "mmtc": 43
+      },
+      {
+        "mmtc": 44
+      }
+    ],
+    "mean_rho": null,
+    "omega_path": "qoe_oran_framework/results/live_final/dqn_final_1x50x60x0.4s/dqn/live_testbed/rep_0/omega_log.jsonl",
+    "checkpoint_path": "",
+    "drift_flag": false,
+    "drift_reason": ""
+  }
+]
