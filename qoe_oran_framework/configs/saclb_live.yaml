@@ -89,3 +89,30 @@ arrivals:
 episode:
   step_seconds: 5.0
   steps_per_episode: 60
+
+# Stage One: QoE-aware reward mode (eq.9) for the "+QoE-driven-ratio"
+# ablation arm (see saclb_xapp.py's --reward-mode flag) -- the "static/
+# heuristic-ratio baseline" arm uses lb_only unchanged and never reads this
+# section. Kept identical to saclb_offline_live1gnb.yaml's qoe: section
+# (same rationale as the reward: section above -- a checkpoint/mapper
+# trained under one set of weights must be evaluated under the same set).
+# iqx_coeffs are CALIBRATED and mapper_checkpoint points at the trained
+# per-slice LSTMs -- see saclb_offline_live1gnb.yaml's qoe: section comment
+# for the full alignment-metric evidence (calibration/fit_iqx.py,
+# calibration/train_lstm.py).
+qoe:
+  reward:
+    alpha: 1.0
+    beta: 0.2
+    gamma: 0.5
+  lstm_hidden: 32
+  window: 8
+  max_staleness: 20
+  mapper_checkpoint:
+    urllc: qoe_oran_framework/results/qoe_mapper/qoe_mapper_urllc.pt
+    embb: qoe_oran_framework/results/qoe_mapper/qoe_mapper_embb.pt
+    mmtc: qoe_oran_framework/results/qoe_mapper/qoe_mapper_mmtc.pt
+  iqx_coeffs:
+    urllc: {alpha: 5.167748, beta: 9.999999, gamma: 44.904893, delta: 199.999999, epsilon: 0.000000}
+    embb:  {alpha: 3.522951, beta: 0.425081, gamma: 0.000000, delta: 0.000000, epsilon: 199.999999}
+    mmtc:  {alpha: 5.999999, beta: 9.999999, gamma: 0.000000, delta: 7.944624, epsilon: 0.000000}

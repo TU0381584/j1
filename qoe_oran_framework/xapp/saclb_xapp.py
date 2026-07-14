@@ -62,6 +62,11 @@ def main() -> None:
     parser.add_argument("--xapp-listen-port", type=int, default=6600)
     parser.add_argument("--gnb-listen-port", type=int, default=6655)
     parser.add_argument("--recv-timeout-s", type=float, default=30.0)
+    parser.add_argument(
+        "--reward-mode", choices=["sla", "qoe"], default="sla",
+        help="sla=Stage Zero's frozen eq.2 baseline (default); qoe=Stage One's eq.9 "
+             "QoE-mapper-driven reward -- requires the config to have a 'qoe:' section.",
+    )
     args = parser.parse_args()
 
     if args.algorithm != "lb_only" and not args.checkpoint:
@@ -85,7 +90,7 @@ def main() -> None:
         gnb_id=args.gnb_id, xapp_listen_port=args.xapp_listen_port, gnb_listen_port=args.gnb_listen_port,
         recv_timeout_s=args.recv_timeout_s,
     )
-    env = RANEnv(cfg, kpm_source, seed=args.seed)
+    env = RANEnv(cfg, kpm_source, seed=args.seed, reward_mode=args.reward_mode)
 
     print(f"[{args.run_id}] talking to gNB E2 agent (listen={args.xapp_listen_port}, gNB={args.gnb_listen_port})...", file=sys.stderr)
     try:

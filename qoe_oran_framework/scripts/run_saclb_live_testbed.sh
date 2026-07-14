@@ -48,6 +48,7 @@ RUN_ID=""
 GNB_ID="gnb-0"
 CONFIG="$QOE_DIR/configs/saclb_live.yaml"
 RESULTS_DIR="$QOE_DIR/results/live"
+REWARD_MODE="sla"
 
 # OAI-native UE stack, NOT UERANSIM: UERANSIM's simulated air interface is
 # not protocol-compatible with OAI's rfsimulator, and this script's gNB is
@@ -72,10 +73,11 @@ while [[ $# -gt 0 ]]; do
     --embb-ratio) EMBB_RATIO="$2"; shift 2 ;;
     --random-seed) RANDOM_SEED="$2"; shift 2 ;;
     --core-container) CORE_CONTAINER="$2"; shift 2 ;;
+    --reward-mode) REWARD_MODE="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     *)
       echo "Unknown argument: $1"
-      echo "Usage: $0 --algorithm {dqn|a2c|rainbow|lb_only} [--checkpoint PATH] [--episodes N] --run-id ID [--config PATH] [--results-dir DIR] [--ue-count N] [--dry-run]"
+      echo "Usage: $0 --algorithm {dqn|a2c|rainbow|lb_only} [--checkpoint PATH] [--episodes N] --run-id ID [--config PATH] [--results-dir DIR] [--ue-count N] [--reward-mode {sla|qoe}] [--dry-run]"
       exit 2
       ;;
   esac
@@ -109,6 +111,7 @@ echo "  Checkpoint   : ${CHECKPOINT:-<none, lb_only>}"
 echo "  Episodes     : $EPISODES"
 echo "  Run ID       : $RUN_ID"
 echo "  Config       : $CONFIG"
+echo "  Reward mode  : $REWARD_MODE"
 echo "  gNB binary   : $NR_SOFTMODEM"
 
 GNB_LOG="$RESULTS_DIR/gnb_nr-softmodem.log"
@@ -177,7 +180,7 @@ OMEGA_PATH="$RESULTS_DIR/$ALGORITHM/${RUN_ID}_omega_log.jsonl"
 
 echo ""
 echo "Starting live xApp ($ALGORITHM), omega log -> $OMEGA_PATH"
-XAPP_CMD="cd '$ROOT_DIR' && PYTHONPATH='$ROOT_DIR' /usr/bin/python3 qoe_oran_framework/xapp/saclb_xapp.py --config '$CONFIG' --algorithm '$ALGORITHM' --gnb-id '$GNB_ID' --episodes '$EPISODES' --seed '$RANDOM_SEED' --run-id '$RUN_ID' --omega-jsonl '$OMEGA_PATH'"
+XAPP_CMD="cd '$ROOT_DIR' && PYTHONPATH='$ROOT_DIR' /usr/bin/python3 qoe_oran_framework/xapp/saclb_xapp.py --config '$CONFIG' --algorithm '$ALGORITHM' --gnb-id '$GNB_ID' --episodes '$EPISODES' --seed '$RANDOM_SEED' --run-id '$RUN_ID' --omega-jsonl '$OMEGA_PATH' --reward-mode '$REWARD_MODE'"
 if [[ -n "$CHECKPOINT" ]]; then
   XAPP_CMD+=" --checkpoint '$CHECKPOINT'"
 fi

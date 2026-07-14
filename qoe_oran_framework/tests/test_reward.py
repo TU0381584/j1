@@ -1,5 +1,5 @@
-from qoe_oran_framework.config import RewardWeights, SliceSpec
-from qoe_oran_framework.reward import check_violations, compute_step_reward
+from qoe_oran_framework.config import QoeRewardWeights, RewardWeights, SliceSpec
+from qoe_oran_framework.reward import check_violations, compute_qoe_reward, compute_step_reward
 from qoe_oran_framework.types import ClusterState, SliceAggState
 
 SPECS = {
@@ -118,3 +118,67 @@ def test_congestion_term_scales_with_accepted_count_and_mean_congestion():
     )
     # mean_congestion over the 2 slice entries = 0.3, total_accepted = 3
     assert info["congestion_term"] == 2.0 * 0.3 * 3
+
+
+# ---- compute_qoe_reward (eq.9, Stage One) ----
+
+def test_qoe_reward_higher_mos_gives_higher_reward():
+    weights = QoeRewardWeights(alpha=1.0, beta=0.0, gamma=0.0)
+    state = _state()
+    r_low, _ = compute_qoe_reward(
+        state, SPECS, accepted_counts={}, mos_by_slice={"urllc": 1.0, "embb": 1.0}, qoe_weights=weights,
+    )
+    r_high, _ = compute_qoe_reward(
+        state, SPECS, accepted_counts={}, mos_by_slice={"urllc": 5.0, "embb": 5.0}, qoe_weights=weights,
+    )
+    assert r_high > r_low
+
+
+def test_qoe_reward_mos_term_is_normalised_one_to_five_scale():
+    weights = QoeRewardWeights(alpha=1.0, beta=0.0, gamma=0.0)
+    # mean_mos=3.0 -> mos_norm=(3-1)/4=0.5 -> reward=alpha*0.5=0.5, no cost/viol terms
+    reward, info = compute_qoe_reward(
+        _state(), SPECS, accepted_counts={}, mos_by_slice={"urllc": 3.0, "embb": 3.0}, qoe_weights=weights,
+    )
+    assert info["mean_mos"] == 3.0
+    assert abs(reward - 0.5) < 1e-9
+
+
+def test_qoe_reward_cost_term_scales_with_congestion_and_accepted_count():
+    weights = QoeRewardWeights(alpha=0.0, beta=1.0, gamma=0.0)
+    reward, info = compute_qoe_reward(
+        _state(), SPECS, accepted_counts={"urllc": 3, "embb": 0},
+        mos_by_slice={"urllc": 3.0, "embb": 3.0}, qoe_weights=weights,
+    )
+    # mean_congestion=0.3 (both slices' congestion_level=0.3), total_accepted=3
+    assert info["cost"] == 0.3 * 3
+    assert abs(reward - (-1.0 * info["cost"])) < 1e-9
+
+
+def test_qoe_reward_sla_viol_uses_continuous_severity_not_flat_charge():
+    weights = QoeRewardWeights(alpha=0.0, beta=0.0, gamma=1.0)
+    # urllc deeply violated (queue=20 -> margin=1-20=-19, severity=19, clipped
+    # per-slice contribution before averaging), embb fully compliant (severity=0)
+    state = _state(urllc_queue=20.0)
+    reward, info = compute_qoe_reward(
+        state, SPECS, accepted_counts={}, mos_by_slice={"urllc": 3.0, "embb": 3.0}, qoe_weights=weights,
+    )
+    # mean severity over 2 slices = (19+0)/2 = 9.5, clipped to 1.0 (sla_viol is bounded [0,1])
+    assert info["sla_viol"] == 1.0
+    assert abs(reward - (-1.0)) < 1e-9
+
+
+def test_qoe_reward_missing_slice_in_mos_dict_excluded_from_mean():
+    weights = QoeRewardWeights(alpha=1.0, beta=0.0, gamma=0.0)
+    reward, info = compute_qoe_reward(
+        _state(), SPECS, accepted_counts={}, mos_by_slice={"urllc": 5.0}, qoe_weights=weights,
+    )
+    assert info["mean_mos"] == 5.0  # only urllc contributes, embb absent from mos_by_slice
+
+
+def test_qoe_reward_carries_limitation():
+    weights = QoeRewardWeights()
+    _, info = compute_qoe_reward(
+        _state(), SPECS, accepted_counts={}, mos_by_slice={"urllc": 3.0, "embb": 3.0}, qoe_weights=weights,
+    )
+    assert "limitation" in info and info["limitation"]

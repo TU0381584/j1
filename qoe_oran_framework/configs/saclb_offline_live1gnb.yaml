@@ -112,3 +112,43 @@ arrivals:
 episode:
   step_seconds: 5.0
   steps_per_episode: 60
+
+# Stage One: QoE-aware reward mode (eq.9), used ONLY when a run is launched
+# with --reward-mode qoe (see env.py's reward_mode switch) -- absent this
+# section, reward_mode="sla" (Stage Zero's frozen eq.2 baseline) is
+# unaffected.
+#
+# iqx_coeffs below are CALIBRATED (calibration/fit_iqx.py, run against
+# P.1203 mode-0 objective labels for eMBB -- via a simulated ABR video
+# client bridge, see calibration/video_client_model.py -- and ACR-style
+# task-success scoring for URLLC/mMTC, see calibration/acr_scoring.py).
+# Held-out alignment: eMBB MAE=0.089/r=0.926, URLLC MAE=0.131/r=0.742,
+# mMTC MAE=0.347/r=0.961 (full results in
+# calibration/fitted_iqx_coeffs.json). URLLC's weaker r is a genuine,
+# documented finding -- IQX's smooth log-based closed form fits a
+# near-binary, deadline-driven ACR profile less well than eMBB's/mMTC's
+# more continuous degradation curves; this motivates (and is
+# quantitatively closed by) the LSTM refinement below.
+#
+# mapper_checkpoint: per-slice trained QoEMapper LSTMs
+# (calibration/train_lstm.py), each refining that slice's IQX prior via a
+# window of KPM history. Held-out generalisation after refinement: eMBB
+# MAE=0.013/r=0.997, URLLC MAE=0.055/r=0.911, mMTC MAE=0.047/r=0.999 (see
+# results/qoe_mapper/lstm_train_results.json) -- the LSTM closes most of
+# the IQX prior's residual gap, most dramatically for URLLC (r 0.74->0.91).
+qoe:
+  reward:
+    alpha: 1.0    # QoE/MOS weight
+    beta: 0.2     # resource-cost weight
+    gamma: 0.5    # SLA-violation-penalty weight
+  lstm_hidden: 32
+  window: 8
+  max_staleness: 20
+  mapper_checkpoint:
+    urllc: qoe_oran_framework/results/qoe_mapper/qoe_mapper_urllc.pt
+    embb: qoe_oran_framework/results/qoe_mapper/qoe_mapper_embb.pt
+    mmtc: qoe_oran_framework/results/qoe_mapper/qoe_mapper_mmtc.pt
+  iqx_coeffs:
+    urllc: {alpha: 5.167748, beta: 9.999999, gamma: 44.904893, delta: 199.999999, epsilon: 0.000000}
+    embb:  {alpha: 3.522951, beta: 0.425081, gamma: 0.000000, delta: 0.000000, epsilon: 199.999999}
+    mmtc:  {alpha: 5.999999, beta: 9.999999, gamma: 0.000000, delta: 7.944624, epsilon: 0.000000}

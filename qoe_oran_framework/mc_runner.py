@@ -97,6 +97,15 @@ class RunSummary:
     # as 0% binary-compliant after the first episode).
     sla_margin_by_slice: Dict[str, float] = field(default_factory=dict)
     sla_margin_by_slice_per_episode: List[Dict[str, float]] = field(default_factory=list)
+    # QoE-mode only (reward_mode="qoe"): populated from
+    # reward.compute_qoe_reward's info dict (mean_mos/mos_by_slice/cost/
+    # sla_viol) -- empty/0.0 for sla-mode runs, since compute_step_reward's
+    # info dict has no such keys. mean across all steps of all episodes
+    # (not episode-of-episode-means) to match how the qoe reward's cost/
+    # sla_viol terms are themselves per-step quantities.
+    mean_mos_by_slice: Dict[str, float] = field(default_factory=dict)
+    mean_cost: float = 0.0
+    mean_sla_viol: float = 0.0
 
 
 def build_policy(algorithm: str, cfg: SacLbExperimentConfig, **overrides):
@@ -257,6 +266,12 @@ def run_single(
     episode_sla_compliance_by_slice: List[Dict[str, float]] = []
     episode_sla_compliance_all_slices: List[float] = []
     episode_sla_margin_by_slice: List[Dict[str, float]] = []
+    # QoE-mode only -- flat, across every step of every episode (see
+    # RunSummary.mean_mos_by_slice's docstring for why this isn't
+    # episode-of-episode-means).
+    all_step_mos_by_slice: Dict[str, List[float]] = {}
+    all_step_cost: List[float] = []
+    all_step_sla_viol: List[float] = []
 
     for episode_idx in range(1, n_episodes + 1):
         # reset() must run at the top of every episode, not just once before
@@ -322,6 +337,19 @@ def run_single(
             for slice_id, margin in per_slice_sla_margin.items():
                 sla_margin_sum_by_slice[slice_id] = sla_margin_sum_by_slice.get(slice_id, 0.0) + margin
 
+            # QoE-mode only -- these keys are absent from compute_step_reward's
+            # info dict (sla-mode), so .get() leaves sla-mode runs untouched.
+            mos_by_slice = result.info["reward_breakdown"].get("mos_by_slice")
+            if mos_by_slice is not None:
+                for slice_id, mos in mos_by_slice.items():
+                    all_step_mos_by_slice.setdefault(slice_id, []).append(mos)
+            step_cost = result.info["reward_breakdown"].get("cost")
+            if step_cost is not None:
+                all_step_cost.append(step_cost)
+            step_sla_viol = result.info["reward_breakdown"].get("sla_viol")
+            if step_sla_viol is not None:
+                all_step_sla_viol.append(step_sla_viol)
+
             evidence = {
                 "seed": seed,
                 "reward": result.reward,
@@ -330,6 +358,11 @@ def run_single(
                 "accepted_counts": result.info["accepted_counts"],
                 "fairness_ratio": result.info["fairness_ratio"],
                 "n_pending": len(pending),
+                "ceilings": result.info.get("ceilings"),
+                "mean_mos": result.info["reward_breakdown"].get("mean_mos"),
+                "mos_by_slice": mos_by_slice,
+                "cost": step_cost,
+                "sla_viol": step_sla_viol,
                 "per_slice_compliant": per_slice_compliant,
                 "per_slice_sla_margin": per_slice_sla_margin,
             }
@@ -404,6 +437,12 @@ def run_single(
         for slice_id in cfg.slice_by_id
     } if episode_sla_margin_by_slice else {}
 
+    mean_mos_by_slice = {
+        slice_id: float(np.mean(values)) for slice_id, values in all_step_mos_by_slice.items()
+    }
+    mean_cost = float(np.mean(all_step_cost)) if all_step_cost else 0.0
+    mean_sla_viol = float(np.mean(all_step_sla_viol)) if all_step_sla_viol else 0.0
+
     summary = RunSummary(
         run_id=run_id,
         algorithm=algorithm,
@@ -422,6 +461,9 @@ def run_single(
         sla_compliance_by_slice_per_episode=episode_sla_compliance_by_slice,
         sla_margin_by_slice=sla_margin_by_slice,
         sla_margin_by_slice_per_episode=episode_sla_margin_by_slice,
+        mean_mos_by_slice=mean_mos_by_slice,
+        mean_cost=mean_cost,
+        mean_sla_viol=mean_sla_viol,
     )
     if mode == "live_testbed":
         summary.drift_flag, summary.drift_reason = flag_drift(summary)
@@ -461,6 +503,7 @@ def run_mc(
     batch_size: int = 16,
     policy_factory: Optional[Callable[[int], Any]] = None,
     extra_limitations: Optional[List[str]] = None,
+    reward_mode: str = "sla",
 ) -> List[RunSummary]:
     import os
 
@@ -469,7 +512,7 @@ def run_mc(
         seed = base_seed + rep
         run_id = f"{algorithm}_{mode}_seed{seed}_rep{rep}"
         kpm_source = kpm_source_factory(seed)
-        env = RANEnv(cfg, kpm_source, seed=seed)
+        env = RANEnv(cfg, kpm_source, seed=seed, reward_mode=reward_mode)
         policy = policy_factory(seed) if policy_factory is not None else build_policy(algorithm, cfg)
 
         rep_dir = os.path.join(results_dir, algorithm, mode, f"rep_{rep}")

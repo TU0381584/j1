@@ -46,6 +46,11 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=256)
     parser.add_argument("--results-dir", default="qoe_oran_framework/results/offline")
     parser.add_argument("--source", choices=["closed_loop", "open_loop"], default="closed_loop")
+    parser.add_argument(
+        "--reward-mode", choices=["sla", "qoe"], default="sla",
+        help="sla=Stage Zero's frozen eq.2 baseline (default); qoe=Stage One's eq.9 "
+             "QoE-mapper-driven reward -- requires the config to have a 'qoe:' section.",
+    )
     args = parser.parse_args()
 
     cfg = load_saclb_config(args.config)
@@ -72,6 +77,7 @@ def main() -> None:
         mode=f"offline_{args.source}",
         training=True,
         results_dir=args.results_dir,
+        reward_mode=args.reward_mode,
     )
 
     out_dir = Path(args.results_dir) / args.algorithm / f"offline_{args.source}"

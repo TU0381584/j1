@@ -26,12 +26,31 @@ def _build_numeric_id(base_value: str, offset: int) -> str:
     return f"{value:0{width}d}"
 
 
-def _assign_profiles(ue_count: int, embb_ratio: float, seed: int, profile_mode: str) -> List[str]:
+def _assign_profiles(
+    ue_count: int, embb_ratio: float, seed: int, profile_mode: str, custom_profiles: str = "",
+) -> List[str]:
+    if profile_mode == "custom":
+        profiles = [p.strip().lower() for p in custom_profiles.split(",") if p.strip()]
+        if len(profiles) != ue_count:
+            raise ValueError(
+                f"--custom-profiles has {len(profiles)} entries, expected --ue-count={ue_count}"
+            )
+        valid = {"embb", "urllc", "mmtc"}
+        bad = [p for p in profiles if p not in valid]
+        if bad:
+            raise ValueError(f"--custom-profiles has invalid entries {bad}, must be one of {valid}")
+        return profiles
+
     if profile_mode == "triad":
-        if ue_count != 3:
-            raise ValueError("--profile-mode triad requires --ue-count 3")
-        # Deterministic one-per-class mapping used for phase-3 precondition runs.
-        return ["embb", "urllc", "mmtc"]
+        if ue_count % 3 != 0:
+            raise ValueError("--profile-mode triad requires --ue-count to be a multiple of 3")
+        # Deterministic one-per-class mapping used for phase-3 precondition runs,
+        # generalised to N-per-class (ue_count=3 -> identical ["embb","urllc","mmtc"]
+        # as before) so multi-UE-per-slice contention tests can reuse the same
+        # deterministic, balanced assignment instead of the embb/urllc-only ratio
+        # path below (which has no mmtc branch at all).
+        per_slice = ue_count // 3
+        return ["embb"] * per_slice + ["urllc"] * per_slice + ["mmtc"] * per_slice
 
     if profile_mode == "auto" and ue_count == 3:
         return ["embb", "urllc", "mmtc"]
@@ -376,9 +395,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--random-seed", type=int, default=42, help="Seed for profile assignment")
     parser.add_argument(
         "--profile-mode",
-        choices=["auto", "ratio", "triad"],
+        choices=["auto", "ratio", "triad", "custom"],
         default="auto",
-        help="UE profile assignment mode (auto uses triad for 3 UEs, otherwise embb/urllc ratio)",
+        help="UE profile assignment mode (auto uses triad for 3 UEs, otherwise embb/urllc ratio; "
+             "custom uses --custom-profiles verbatim, for uneven per-slice contention tests)",
+    )
+    parser.add_argument(
+        "--custom-profiles",
+        default="",
+        help="Comma-separated profile list (e.g. embb,urllc,urllc,mmtc), used only with "
+             "--profile-mode custom. Length must equal --ue-count.",
     )
 
     parser.add_argument("--imsi-base", default="001010000100000", help="Base IMSI as integer string")
@@ -422,7 +448,9 @@ def main() -> int:
     compose_path = Path(args.output_compose).resolve()
     csv_path = Path(args.output_profiles).resolve()
 
-    profiles = _assign_profiles(args.ue_count, args.embb_ratio, args.random_seed, args.profile_mode)
+    profiles = _assign_profiles(
+        args.ue_count, args.embb_ratio, args.random_seed, args.profile_mode, args.custom_profiles,
+    )
     records = _write_compose(
         compose_path=compose_path,
         ue_count=args.ue_count,

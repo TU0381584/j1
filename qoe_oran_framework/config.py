@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import yaml
+
+from .qoe_mapper import DEFAULT_IQX_COEFFS, IqxCoeffs
 
 # sd -> slice_id convention, matching drl_slicing/oranslice_drl/reward.py::_resolve_slice_profile
 SD_TO_SLICE_ID = {0: "embb", 1: "urllc", 2: "mmtc"}
@@ -49,6 +51,40 @@ class EpisodeConfig:
 
 
 @dataclass
+class QoeRewardWeights:
+    """eq.(9): r_t = alpha*MOS(QoS) - beta*cost - gamma*SLA_viol. Stage One's
+    QoE-aware reward mode, additive to (not replacing) RewardWeights above --
+    see reward.py::compute_qoe_reward. Named to match the Stage One starter
+    scaffold's config.yaml (reward.alpha/beta/gamma) for direct
+    cross-reference with the paper #3 formula."""
+
+    alpha: float = 1.0   # QoE/MOS weight
+    beta: float = 0.2    # resource-cost weight
+    gamma: float = 0.5   # SLA-violation-penalty weight
+
+
+@dataclass
+class QoeConfig:
+    """Stage One QoE mapper configuration -- absent (None) on any config
+    that doesn't opt into the QoE-aware reward path, so every Stage Zero
+    config keeps loading unchanged (frozen baseline, per Stage One's
+    'change one thing' ground rule)."""
+
+    reward: QoeRewardWeights = field(default_factory=QoeRewardWeights)
+    lstm_hidden: int = 32
+    window: int = 8
+    max_staleness: int = 20
+    iqx_coeffs: Dict[str, IqxCoeffs] = field(default_factory=lambda: dict(DEFAULT_IQX_COEFFS))
+    # Per-slice trained QoEMapper state_dict paths (calibration/train_lstm.py
+    # trains one LSTM PER SLICE, not one shared across all three -- each
+    # slice's objective-label generator and IQX prior differ enough that a
+    # single shared model would blur together very different QoS-to-MOS
+    # relationships). A slice absent from this dict falls back to its IQX
+    # prior alone (no LSTM refinement) rather than erroring.
+    mapper_checkpoint: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class SacLbExperimentConfig:
     name: str
     random_seed: int
@@ -60,6 +96,7 @@ class SacLbExperimentConfig:
     reward: RewardWeights
     arrivals: ArrivalConfig
     episode: EpisodeConfig
+    qoe: Optional[QoeConfig] = None
 
     @property
     def slice_by_id(self) -> Dict[str, SliceSpec]:
@@ -102,6 +139,32 @@ def load_saclb_config(config_path: str) -> SacLbExperimentConfig:
     arrivals_cfg = raw.get("arrivals", {})
     episode_cfg = raw.get("episode", {})
 
+    qoe_cfg = None
+    if "qoe" in raw:
+        qraw = raw["qoe"] or {}
+        rraw = qraw.get("reward", {})
+        iqx_raw = qraw.get("iqx_coeffs", {})
+        iqx_coeffs = dict(DEFAULT_IQX_COEFFS)
+        for slice_id, c in iqx_raw.items():
+            iqx_coeffs[slice_id] = IqxCoeffs(
+                alpha=float(c.get("alpha", 4.5)), beta=float(c.get("beta", 0.6)),
+                gamma=float(c.get("gamma", 1.0)), delta=float(c.get("delta", 8.0)),
+                epsilon=float(c.get("epsilon", 2.0)),
+            )
+        qoe_cfg = QoeConfig(
+            reward=QoeRewardWeights(
+                alpha=float(rraw.get("alpha", 1.0)), beta=float(rraw.get("beta", 0.2)),
+                gamma=float(rraw.get("gamma", 0.5)),
+            ),
+            lstm_hidden=int(qraw.get("lstm_hidden", 32)),
+            window=int(qraw.get("window", 8)),
+            max_staleness=int(qraw.get("max_staleness", 20)),
+            iqx_coeffs=iqx_coeffs,
+            mapper_checkpoint={
+                slice_id: str(path) for slice_id, path in (qraw.get("mapper_checkpoint") or {}).items()
+            },
+        )
+
     return SacLbExperimentConfig(
         name=raw["name"],
         random_seed=int(raw.get("random_seed", 256)),
@@ -123,4 +186,5 @@ def load_saclb_config(config_path: str) -> SacLbExperimentConfig:
             step_seconds=float(episode_cfg.get("step_seconds", 5.0)),
             steps_per_episode=int(episode_cfg.get("steps_per_episode", 60)),
         ),
+        qoe=qoe_cfg,
     )

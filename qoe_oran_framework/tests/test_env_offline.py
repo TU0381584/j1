@@ -184,3 +184,72 @@ def test_env_over_replay_kpm_source(tmp_path):
     result = env.step([1] * len(pending))
     assert result.done is False
     assert len(source.sent_controls) >= 1
+
+
+def test_sla_mode_reward_unaffected_by_passive_qoe_diagnostics():
+    """reward_mode="sla" against a config WITH a qoe: section must produce
+    the identical reward compute_step_reward alone would give (the frozen
+    ratio-control baseline's actions/training signal must not change),
+    while ALSO surfacing mean_mos/mos_by_slice/cost/sla_viol as read-only
+    diagnostics -- see env.py's RANEnv.__init__/step() comments on why
+    these are needed for the Stage One ablation to compare both arms on
+    equal footing."""
+    from qoe_oran_framework.reward import compute_step_reward
+
+    cfg = load_saclb_config(str(CONFIGS_DIR / "saclb_offline_live1gnb.yaml"))
+    assert cfg.qoe is not None  # this test is only meaningful if qoe: is configured
+
+    source = SyntheticKpmSource(seed=3, gnb_ids=cfg.gnb_ids, slice_ids=list(cfg.slice_by_id))
+    env = RANEnv(cfg, source, seed=3, reward_mode="sla")
+    env.reset()
+    pending = env.pending_requests()
+    actions = [1] * len(pending)
+
+    cluster_state_before = env.last_cluster_state
+    result = env.step(actions)
+    rb = result.info["reward_breakdown"]
+
+    # Diagnostics present and plausible.
+    assert 1.0 <= rb["mean_mos"] <= 5.0
+    assert set(rb["mos_by_slice"].keys()) == set(cfg.slice_by_id.keys())
+    assert rb["cost"] >= 0.0
+    assert 0.0 <= rb["sla_viol"] <= 1.0
+    assert "diagnostics" in rb["limitation"] or "NOT part of this run's actual reward" in rb["limitation"]
+
+    # Reward itself matches a standalone compute_step_reward call on the
+    # same pre-step cluster_state/accepted_counts -- i.e. bit-identical to
+    # what this run would have produced with no qoe: section at all.
+    expected_reward, _ = compute_step_reward(
+        cluster_state_before, cfg.slice_by_id, result.info["accepted_counts"],
+        cfg.reward, include_lb_term=env.include_lb_term,
+    )
+    assert result.reward == pytest.approx(expected_reward)
+
+
+def test_step_logs_full_ceiling_snapshot_every_step():
+    """info["ceilings"] must be the FULL current (gNB, slice) ceiling state
+    every step, not just entries action_mapping.ApplyResult.ceilings
+    touched this step (which omits slices with no pending request this
+    step) -- this is what lets a live run plot the real slicing_control_m
+    trajectory each policy commands, not just infer it from block counts."""
+    cfg = load_saclb_config(str(CONFIGS_DIR / "saclb_offline_live1gnb.yaml"))
+    source = SyntheticKpmSource(seed=5, gnb_ids=cfg.gnb_ids, slice_ids=list(cfg.slice_by_id))
+    env = RANEnv(cfg, source, seed=5, reward_mode="sla")
+    env.reset()
+    pending = env.pending_requests()
+
+    result = env.step([1] * len(pending))  # accept everyone
+    ceilings = result.info["ceilings"]
+    expected_keys = {f"{gnb_id}:{slice_id}" for gnb_id in cfg.gnb_ids for slice_id in cfg.slice_by_id}
+    assert set(ceilings.keys()) == expected_keys
+    for key, c in ceilings.items():
+        assert "min_ratio" in c and "max_ratio" in c
+        slice_id = key.split(":")[1]
+        spec = cfg.slice_by_id[slice_id]
+        assert spec.min_ratio_floor <= c["max_ratio"] <= spec.max_ratio_cap
+
+    # A slice with zero pending requests this step must still appear (full
+    # snapshot, not just this-step deltas).
+    pending2 = env.pending_requests()
+    result2 = env.step([1] * len(pending2))
+    assert set(result2.info["ceilings"].keys()) == expected_keys

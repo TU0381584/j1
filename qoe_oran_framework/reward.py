@@ -29,9 +29,9 @@ Omega-tuple `limitation` field of every run):
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
-from .config import RewardWeights, SliceSpec
+from .config import QoeRewardWeights, RewardWeights, SliceSpec
 from .types import ClusterState
 
 REWARD_INTERPRETATION_LIMITATION = (
@@ -154,4 +154,90 @@ def compute_step_reward(
     }
     if include_lb_term:
         info["limitation"] = REWARD_INTERPRETATION_LIMITATION
+    return reward, info
+
+
+QOE_REWARD_LIMITATION = (
+    "compute_qoe_reward implements the survey's eq.(9) form "
+    "(r=alpha*MOS-beta*cost-gamma*SLA_viol), a DIFFERENT reward SHAPE from "
+    "eq.2 above, not eq.2 with one term swapped -- MOS replaces the static "
+    "priority_weight-based service_term entirely, cost is a direct PRB-"
+    "expenditure term (not folded into a per-slice sum), and SLA_viol is a "
+    "continuous severity average (from ViolationCheck.margin) rather than a "
+    "flat per-violated-slice charge. See reward.py::compute_qoe_reward "
+    "docstring and Stage One's task-4 instruction ('swap the reward's MOS "
+    "source ... and ONLY that') for why this coexists with, rather than "
+    "replaces, compute_step_reward."
+)
+
+
+QOE_DIAGNOSTIC_ONLY_LIMITATION = (
+    "mean_mos/mos_by_slice/cost/sla_viol on this reward_mode='sla' step are "
+    "QoE-mapper diagnostics computed for ablation comparability against "
+    "reward_mode='qoe' runs -- NOT part of this run's actual reward signal, "
+    "which remains eq.2's compute_step_reward, unchanged."
+)
+
+
+def compute_qoe_reward(
+    cluster_state: ClusterState,
+    slice_specs: Dict[str, SliceSpec],
+    accepted_counts: Dict[str, int],
+    mos_by_slice: Dict[str, float],
+    qoe_weights: QoeRewardWeights,
+) -> Tuple[float, Dict[str, Any]]:
+    """eq.(9) of the survey (paper #3): r_t = alpha*MOS(QoS) - beta*cost -
+    gamma*SLA_viol. This is Stage One's QoE-aware reward mode -- used ONLY
+    by the "+QoE-driven-ratio" ablation arm; the frozen ratio-control
+    baseline (LbOnlyHeuristic, and DQN/A2C's original SLA-based training)
+    keeps using compute_step_reward (eq.2) unchanged.
+
+    mos_by_slice: this step's QoE-mapper-inferred MOS per slice (already
+    computed upstream by the caller -- env.py owns the mapper's stateful
+    rolling window / latency-proxy tracking; this function stays pure and
+    stateless, matching compute_step_reward's design, and doesn't import
+    qoe_mapper.py itself).
+
+    cost: realised PRB expenditure this step. Reuses the same
+    mean_congestion*total_accepted basis compute_step_reward's
+    congestion_term already uses (one definition of "cost" across both
+    reward modes, not two inconsistent ones).
+
+    SLA_viol: mean per-slice violation SEVERITY (not a flat per-violation
+    charge like eq.2's violation_term) -- uses ViolationCheck.margin,
+    clipped to [0, 1] per slice via max(0, -margin), so a slice that's
+    deeply over budget contributes more severity than one that just
+    crossed the line, then averaged across all configured slices (not just
+    the ones with pending requests this step, so SLA_viol reflects the
+    whole cluster's standing state, matching eq.9's role as a persistent
+    penalty term rather than a per-request one).
+    """
+    violations = check_violations(cluster_state, slice_specs)
+
+    total_accepted = sum(accepted_counts.values())
+    mean_congestion = _cluster_mean_congestion(cluster_state)
+    cost = mean_congestion * total_accepted
+
+    mos_values = [mos_by_slice[s] for s in slice_specs if s in mos_by_slice]
+    mean_mos = (sum(mos_values) / len(mos_values)) if mos_values else 3.0
+    mos_norm = (mean_mos - 1.0) / 4.0  # [1,5] -> [0,1], matching the starter scaffold's own normalisation
+
+    severities = [max(0.0, -violations.margin.get(s, 0.0)) for s in slice_specs]
+    sla_viol = min(1.0, (sum(severities) / len(severities)) if severities else 0.0)
+
+    reward = (
+        qoe_weights.alpha * mos_norm - qoe_weights.beta * cost - qoe_weights.gamma * sla_viol
+    )
+
+    info: Dict[str, Any] = {
+        "mean_mos": mean_mos,
+        "mos_by_slice": dict(mos_by_slice),
+        "cost": cost,
+        "sla_viol": sla_viol,
+        "violated_slices": {k: v for k, v in violations.violated.items() if v},
+        "per_slice_compliant": {k: not v for k, v in violations.violated.items()},
+        "per_slice_sla_margin": dict(violations.margin),
+        "reward": reward,
+        "limitation": QOE_REWARD_LIMITATION,
+    }
     return reward, info
